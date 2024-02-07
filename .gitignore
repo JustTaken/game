@@ -1,0 +1,8 @@
+.envrc
+.direnv/
+zig-out/
+zig-cache/
+outputs/
+nix-builds/
+flake.nix
+flake.lock
