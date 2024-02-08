@@ -1,11 +1,8 @@
 const std = @import("std");
 const _utility = @import("utility.zig");
+const _wrapper = @import("renderer/wrapper.zig");
 
-const c = @cImport({
-    @cDefine("GLFW_INCLUDE_NONE", {});
-    @cInclude("GLFW/glfw3.h");
-});
-
+const Glfw = _wrapper.Glfw;
 const logger = _utility.Configuration.logger;
 
 pub const EventSystem = struct {
@@ -55,15 +52,11 @@ pub const EventSystem = struct {
         u8: [16]u8,
     };
 
-    const Press = c.GLFW_PRESS;
+    const Press = Glfw.Press;
 
     const keys = [_]i32 {
-        c.GLFW_KEY_F,
+        Glfw.KeyF,
     };
-
-    fn get_key(window: *c.GLFWwindow, key: i32) i32 {
-        return c.glfwGetKey(window, key);
-    }
 
     pub fn default(allocator: std.mem.Allocator) !EventSystem {
         const n = @intFromEnum(Event.Type.Max);
@@ -79,21 +72,21 @@ pub const EventSystem = struct {
 
         return .{
             .events = events,
-            .clock = c.glfwGetTime(),
+            .clock = Glfw.get_time(),
         };
     }
 
-    pub fn input(self: *EventSystem, window: *c.GLFWwindow) void {
-        c.glfwPollEvents();
+    pub fn input(self: *EventSystem, window: *Glfw.Window) void {
+        Glfw.poll_events();
 
-        const current_time = c.glfwGetTime();
+        const current_time = Glfw.get_time();
         const delta = current_time - self.clock;
 
         self.clock = current_time;
         _ = delta;
 
         for (keys) |key| {
-            if (get_key(window, key) == Press) {
+            if (Glfw.get_key(window, key) == Press) {
                 self.fire(Event.Type.KeyPress, .{ .i32 = .{ key, Press} }) catch {
                     logger.log(.Error, "Could not fire event", .{});
                 };
@@ -114,4 +107,3 @@ pub const EventSystem = struct {
         }
     }
 };
-

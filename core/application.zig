@@ -10,11 +10,6 @@ const Backend = _renderer.Backend;
 const EventSystem = _event.EventSystem;
 const configuration = _utility.Configuration;
 
-const c = @cImport({
-    @cDefine("GLFW_INCLUDE_NONE", {});
-    @cInclude("GLFW/glfw3.h");
-});
-
 pub const Application = struct {
     game: Game,
     backend: Backend,
@@ -59,7 +54,7 @@ pub const Application = struct {
     pub fn run(self: *Application) void {
         while (self.state != .Closing) {
             if (self.state != .Suspended) {
-                self.event_system.input(self.backend.window.handler);
+                // self.event_system.input(self.backend.window.handler);
                 self.game.update();
 
                 self.state = .Closing;
@@ -69,7 +64,7 @@ pub const Application = struct {
         self.shutdown();
     }
 
-    pub fn shutdown(self: Application) void {
+    pub fn shutdown(self: *Application) void {
         self.backend.shutdown();
     }
 };
