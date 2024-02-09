@@ -79,15 +79,16 @@ pub const Backend = struct {
 
     const Swapchain = struct {
         handler: Vulkan.Swapchain,
-        image_format: Vulkan.SurfaceFormat,
-        image_views: []Vulkan.ImageView,
-        images: []Vulkan.Image,
+        // image_format: Vulkan.SurfaceFormat,
+        image_views: []Vulkan.Swapchain.ImageView,
+        depth_format: Vulkan.Format,
+        // images: []Vulkan.Image,
 
-        frames_in_flight: u8,
-        image_count: u8,
+        frames_in_flight: u8 = 2,
+        // image_count: u8,
 
-        fn new(device: *Device, instance: *Instance, surface: Vulkan.Surface) !void {
-            const formats = instance.handler.get_physical_device_surface_formats(device.physical_device, surface) catch {
+        fn new(device: *Device, instance: *Instance, window: Window) !Swapchain {
+            const formats = instance.handler.get_physical_device_surface_formats(device.physical_device, window.surface) catch {
                 configuration.logger.log(.Error, "Failed to list surface formats", .{});
                 return error.ListSurfaceFormats;
             };
@@ -101,7 +102,7 @@ pub const Backend = struct {
                 break :blk formats[0];
             };
 
-            const present_modes = instance.handler.get_physical_device_surface_present_modes(device.physical_device, surface) catch {
+            const present_modes = instance.handler.get_physical_device_surface_present_modes(device.physical_device, window.surface) catch {
                 configuration.logger.log(.Error, "Failed to list present modes", .{});
                 return error.ListSurfaceFormats;
             };
@@ -113,22 +114,99 @@ pub const Backend = struct {
                 break :blk Vulkan.PRESENT_MODE_FIFO;
             };
 
-            const capabilities = instance.handler.get_physical_device_surface_capabilities(device.physical_device, surface) catch {
-                configuration.logger.log(.Error, "Failed to query surface capabilities", .{});
-                return error.SurfaceCapabilities;
-            };
+            const capabilities = try instance.handler.get_physical_device_surface_capabilities(device.physical_device, window.surface);
 
-            const extent = blk: {
+            const extent: Vulkan.Extent = blk: {
                 if (capabilities.currentExtent.width != 0xFFFFFFFF) {
                     break :blk capabilities.currentExtent;
                 } else {
-                    break :blk null;
+                    const extent = Glfw.get_framebuffer_size(window.handler);
+
+                    break :blk .{
+                        .width = std.math.clamp(extent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
+                        .height = std.math.clamp(extent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height),
+                    };
                 }
             };
 
-            _ = format;
-            _ = present_mode;
-            _ = extent;
+            const image_count = blk: {
+                if (capabilities.maxImageCount > 0 and capabilities.minImageCount + 1 > capabilities.maxImageCount) {
+                    break :blk capabilities.maxImageCount;
+                } else {
+                    break :blk capabilities.minImageCount + 1;
+                }
+            };
+
+            const uniques_queue_family_index = Device.QueueAllocator.uniques(&.{
+                device.queue_allocator.graphics.family,
+                device.queue_allocator.present.family,
+            }) catch |e| {
+                configuration.logger.log(.Error, "Failed to get uniques queue family index list", .{});
+                return e;
+            };
+
+            const swapchain_config: Vulkan.Swapchain.Config = .{
+                .image_count = image_count,
+                .image_format = format.format,
+                .image_color_space = format.colorSpace,
+                .extent = extent,
+                .surface = window.surface,
+                .queue_families = uniques_queue_family_index.items,
+                .sharing_mode = if (uniques_queue_family_index.items.len == 1) Vulkan.SHARING_MODE_EXCLUSIVE else Vulkan.SHARING_MODE_CONCURRENT,
+                .present_mode = present_mode,
+                .pre_transform = capabilities.currentTransform,
+            };
+
+            const handler = Vulkan.Swapchain.new(&device.handler, swapchain_config) catch |e| {
+                configuration.logger.log(.Error, "Failed to validate swapchain configuration", .{});
+
+                return e;
+            };
+
+            const images = device.handler.get_swapchain_images(handler) catch {
+                configuration.logger.log(.Error, "Failed to get swapchain images", .{});
+                return error.Images;
+            };
+
+            const image_views = SNAP_ALLOCATOR.alloc(Vulkan.Swapchain.ImageView, image_count) catch {
+                configuration.logger.log(.Error, "Out of memory", .{});
+                return error.OutOfMemory;
+            };
+
+            for (0..image_count) |i| {
+                const view_config: Vulkan.Swapchain.ImageView.Config = .{
+                    .image = images[i],
+                    .format = format.format,
+                };
+
+                image_views[i] = Vulkan.Swapchain.ImageView.new(device.handler, view_config) catch |e| {
+                    configuration.logger.log(.Error, "Failed to get image view from image", .{});
+                    return e;
+                };
+            }
+
+            const depth_formats = [_]Vulkan.Format {
+                Vulkan.FORMAT_D32_SFLOAT,
+                Vulkan.FORMAT_D32_SFLOAT_S8_UINT,
+                Vulkan.FORMAT_D24_UNORM_S8_UINT,
+            };
+
+            const flags = Vulkan.FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+            const depth_format = blk: for (depth_formats) |candidate| {
+                const format_properties = instance.handler.get_physical_device_format_properties(device.physical_device, candidate);
+                if ((format_properties.linearTilingFeatures & flags) == flags or (format_properties.optimalTilingFeatures & flags) == flags) {
+                    break :blk candidate;
+                }
+            } else {
+                configuration.logger.log(.Error, "Failed to find suitable depth format", .{});
+                return error.DepthFormat;
+            };
+
+            return .{
+                .image_views = image_views,
+                .handler = handler,
+                .depth_format = depth_format,
+            };
         }
     };
 
@@ -164,7 +242,7 @@ pub const Backend = struct {
                     var current_transfer_score: u8 = 0;
                     const family: u32 = @intCast(i);
 
-                    if (families[1] == null and (try instance.get_physical_device_surface_support(physical_device, family, surface))) families[1] = family;
+                    if (families[1] == null and try instance.get_physical_device_surface_support(physical_device, family, surface)) families[1] = family;
                     if (families[0] == null and Vulkan.bit(properties.queueFlags, Vulkan.QueueGraphicsBit)) {
                         families[0] = family;
                         current_transfer_score += 1;
@@ -201,11 +279,40 @@ pub const Backend = struct {
                 };
             }
 
-            fn fill(self: *QueueAllocator, device: *Vulkan.Device) !void {
-                self.graphics.handler = try device.get_device_queue(self.graphics.family);
-                self.present.handler = try device.get_device_queue(self.present.family);
-                self.compute.handler = try device.get_device_queue(self.compute.family);
-                self.transfer.handler = try device.get_device_queue(self.transfer.family);
+            fn uniques(queues: []const u32) !std.ArrayList(u32) {
+                var uniques_array = std.ArrayList(u32).initCapacity(SNAP_ALLOCATOR, 1) catch {
+                    configuration.logger.log(.Error, "Out of memory", .{});
+                    return error.OutOfMemory;
+                };
+
+                const first = [_]u32 {queues[0]};
+                uniques_array.appendSlice(&first) catch {
+                    configuration.logger.log(.Error, "Out of memory", .{});
+                    return error.OutOfMemory;
+                };
+
+                var size: u32 = 0;
+
+                for (queues) |family| {
+                    for (0..size + 1) |i| {
+                        if (family == uniques_array.items[i]) break;
+                    } else {
+                        uniques_array.append(family) catch {
+                            configuration.logger.log(.Error, "Failed to add member to uniques queue family index list", .{});
+                            return error.OutOfMemory;
+                        };
+                        size += 1;
+                    }
+                }
+
+                return uniques_array;
+            }
+
+            fn fill(self: *QueueAllocator, device: *Vulkan.Device) void {
+                self.graphics.handler = device.get_device_queue(self.graphics.family);
+                self.present.handler = device.get_device_queue(self.present.family);
+                self.compute.handler = device.get_device_queue(self.compute.family);
+                self.transfer.handler = device.get_device_queue(self.transfer.family);
             }
 
             const Queue = struct {
@@ -251,8 +358,8 @@ pub const Backend = struct {
 
                         var sum: u8 = 1;
 
-                        const physical_device_props = instance.get_physical_device_properties(physical_device) catch break :rate 0;
-                        const physical_device_feats = instance.get_physical_device_features(physical_device) catch break :rate 0;
+                        const physical_device_props = instance.get_physical_device_properties(physical_device);
+                        const physical_device_feats = instance.get_physical_device_features(physical_device);
 
                         if (!Vulkan.boolean(physical_device_feats.geometryShader)) break :rate 0;
                         if (!Vulkan.boolean(physical_device_feats.samplerAnisotropy)) break :rate 0;
@@ -287,46 +394,46 @@ pub const Backend = struct {
 
             var logical_device = blk: {
                 const priority: [1]f32 = .{1};
-                const families = [_]u32{
+                const families = QueueAllocator.uniques(&.{
                     queue_allocator.graphics.family,
                     queue_allocator.present.family,
                     queue_allocator.compute.family,
                     queue_allocator.transfer.family,
+                }) catch {
+                    configuration.logger.log(.Error, "Could not get uniques queue family index for the selecter physical device", .{});
+                    return error.FamliyIndex;
                 };
 
-                var uniques: [4]i32 = .{ -1, -1, -1, -1 };
-                var queue_create_infos: [4]Vulkan.DeviceQueueCreateInfo = undefined;
-                var size: u32 = 0;
+                var queue_create_infos: []Vulkan.DeviceQueueCreateInfo = SNAP_ALLOCATOR.alloc(Vulkan.DeviceQueueCreateInfo, families.items.len) catch {
+                    configuration.logger.log(.Error, "Out of memory", .{});
+                    return error.OutOfMemory;
+                };
 
-                for (families) |family| {
-                    for (0..size + 1) |i| {
-                        if (family == uniques[i]) break;
-                    } else {
-                        uniques[size] = @as(i32, @intCast(family));
-                        queue_create_infos[size] = .{
-                            .queueFamilyIndex = family,
-                            .queueCount = 1,
-                            .pQueuePriorities = &priority,
-                        };
-                        size += 1;
-                    }
+                for (families.items, 0..) |family, i| {
+                    queue_create_infos[i] = .{
+                        .queueFamilyIndex = family,
+                        .queueCount = 1,
+                        .pQueuePriorities = &priority,
+                    };
                 }
 
                 const device_config = Vulkan.Device.Config {
-                    .queue_count = size,
-                    .queues = &queue_create_infos,
+                    .queues = queue_create_infos,
+                    .features = instance.get_physical_device_features(physical_device),
+                    .extensions = &REQUIRED_DEVICE_EXTENSIONS,
                 };
 
-                break :blk Vulkan.Device.new(instance, physical_device, device_config, SNAP_ALLOCATOR) catch {
-                    configuration.logger.log(.Error, "Could not create device", .{});
-                    return error.DeviceInint;
+                break :blk Vulkan.Device.new(instance, physical_device, device_config, SNAP_ALLOCATOR) catch |e| {
+                    configuration.logger.log(.Error, "Failed to create logical device handler", .{});
+                    return e;
                 };
             };
 
-            try queue_allocator.fill(&logical_device);
-            const physical_device_properties = try instance.get_physical_device_properties(physical_device);
-            const physical_device_properties_memory = try instance.get_physical_device_memory_properties(physical_device);
-            const physical_device_features = try instance.get_physical_device_features(physical_device);
+            queue_allocator.fill(&logical_device);
+
+            const physical_device_properties = instance.get_physical_device_properties(physical_device);
+            const physical_device_properties_memory = instance.get_physical_device_memory_properties(physical_device);
+            const physical_device_features = instance.get_physical_device_features(physical_device);
 
             configuration.logger.log(.Info, "Selecting GPU: {s}", .{std.mem.sliceTo(&physical_device_properties.deviceName, 0)});
 
@@ -367,7 +474,7 @@ pub const Backend = struct {
             return error.DeviceCreate;
         };
 
-        const swapchain = Swapchain.new(&device, &instance, window.surface) catch {
+        const swapchain = Swapchain.new(&device, &instance, window) catch {
             configuration.logger.log(.Error, "Failed to create swapchain", .{});
             return error.SwapchainCreate;
 
