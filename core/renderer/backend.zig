@@ -13,7 +13,7 @@ const Window = Vulkan.Window;
 const GraphicsPipeline = Vulkan.GraphicsPipeline;
 const CommandPool = Vulkan.CommandPool;
 const Sync = Vulkan.Sync;
-const Buffer = Vulkan.Buffer;
+const BufferHandler = Vulkan.BufferHandle;
 
 const configuration = _utility.Configuration;
 
@@ -28,7 +28,7 @@ pub const Backend = struct {
     graphics_pipeline: GraphicsPipeline,
     command_pool: CommandPool,
     sync: Sync,
-    buffer: Buffer,
+    buffers: BufferHandler,
 
     pub fn new() !Backend {
         defer { _ = SNAP_ARENA.deinit(); }
@@ -77,8 +77,8 @@ pub const Backend = struct {
             return e;
         };
 
-        const buffer = Buffer.new(device, instance) catch |e| {
-            configuration.logger.log(.Error, "Failed to create vertex buffer", .{});
+        const buffers = BufferHandler.new(device, command_pool) catch |e| {
+            configuration.logger.log(.Error, "Failed to create vertex and index buffers", .{});
 
             return e;
         };
@@ -91,7 +91,7 @@ pub const Backend = struct {
             .graphics_pipeline = graphics_pipeline,
             .command_pool = command_pool,
             .sync = sync,
-            .buffer = buffer,
+            .buffers = buffers,
         };
     }
 
@@ -114,7 +114,7 @@ pub const Backend = struct {
             }
         };
 
-        self.command_pool.record(self.device, self.graphics_pipeline, self.swapchain, self.buffer, image_index) catch |e| {
+        self.command_pool.record(self.device, self.graphics_pipeline, self.swapchain, self.buffers, image_index) catch |e| {
             configuration.logger.log(.Error, "Backend failed to record command buffer", .{});
 
             return e;
@@ -144,6 +144,7 @@ pub const Backend = struct {
     }
 
     pub fn shutdown(self: *Backend) void {
+        self.buffers.destroy(self.device);
         self.sync.destroy(self.device);
         self.graphics_pipeline.destroy(self.device);
         self.swapchain.destroy(self.device);

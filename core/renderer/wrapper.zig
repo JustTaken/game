@@ -297,6 +297,7 @@ pub const Vulkan = struct {
     pub const Device = struct {
         handle: c.VkDevice,
         physical_device: c.VkPhysicalDevice,
+        memory_properties: c.VkPhysicalDeviceMemoryProperties,
         queues: [4]Queue,
 
         dispatch: Dispatch,
@@ -344,6 +345,7 @@ pub const Vulkan = struct {
             allocate_memory: *const fn (c.VkDevice, *const c.VkMemoryAllocateInfo, ?*const c.VkAllocationCallbacks, *c.VkDeviceMemory) callconv(.C) i32,
             queue_submit: *const fn (c.VkQueue, u32, *const c.VkSubmitInfo, c.VkFence) callconv(.C) i32,
             queue_present: *const fn (c.VkQueue, *const c.VkPresentInfoKHR) callconv(.C) i32,
+            queue_wait_idle: *const fn (c.VkQueue) callconv(.C) i32,
             get_image_memory_requirements: *const fn (c.VkDevice, c.VkImage, *c.VkMemoryRequirements) callconv(.C) void,
             get_device_queue: *const fn (c.VkDevice, u32, u32, *c.VkQueue) callconv(.C) void,
             get_swapchain_images: *const fn (c.VkDevice, c.VkSwapchainKHR, *u32, ?[*]c.VkImage) callconv(.C) i32,
@@ -380,14 +382,19 @@ pub const Vulkan = struct {
             cmd_begin_render_pass: *const fn (c.VkCommandBuffer, *const c.VkRenderPassBeginInfo, c.VkSubpassContents) callconv(.C) void,
             cmd_bind_pipeline: *const fn (c.VkCommandBuffer, c.VkPipelineBindPoint, c.VkPipeline) callconv(.C) void,
             cmd_bind_vertex_buffer: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkBuffer, *const u64) callconv(.C) void,
+            cmd_bind_index_buffer: *const fn (c.VkCommandBuffer, c.VkBuffer, u64, c.VkIndexType) callconv(.C) void,
             cmd_set_viewport: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkViewport) callconv(.C) void,
             cmd_set_scissor: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkRect2D ) callconv(.C) void,
+            cmd_copy_buffer: *const fn (c.VkCommandBuffer, c.VkBuffer, c.VkBuffer, u32, *const c.VkBufferCopy) callconv(.C) void,
             cmd_draw: *const fn (c.VkCommandBuffer, u32, u32, u32, u32) callconv(.C) void,
+            cmd_draw_indexed: *const fn (c.VkCommandBuffer, u32, u32, u32, i32, u32) callconv(.C) void,
+
             end_render_pass: *const fn (c.VkCommandBuffer) callconv(.C) void,
             end_command_buffer: *const fn (c.VkCommandBuffer) callconv(.C) i32,
             reset_command_buffer: *const fn (c.VkCommandBuffer, c.VkCommandBufferResetFlags) callconv(.C) i32,
 
             free_memory: *const fn (c.VkDevice, c.VkDeviceMemory, ?*const c.VkAllocationCallbacks) callconv(.C) void,
+            free_command_buffers: *const fn (c.VkDevice, c.VkCommandPool, u32, *const c.VkCommandBuffer) callconv (.C) void,
             map_memory: *const fn (c.VkDevice, c.VkDeviceMemory, u64, u64, u32, *?*anyopaque) callconv(.C) i32,
             unmap_memory: *const fn (c.VkDevice, c.VkDeviceMemory) callconv(.C) void,
             destroy: *const fn (c.VkDevice, ?*const c.VkAllocationCallbacks) callconv(.C) void,
@@ -540,6 +547,8 @@ pub const Vulkan = struct {
                 PFN_vkGetDeviceQueue(device, queues[i].family, 0, &queues[i].handle);
             }
 
+            const memory_properties = instance.get_physical_device_memory_properties(physical_device);
+
             return .{
                 .handle = device,
                 .dispatch = .{
@@ -548,6 +557,7 @@ pub const Vulkan = struct {
                     .allocate_memory = @as(c.PFN_vkAllocateMemory, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkAllocateMemory"))) orelse return error.FunctionNotFound,
                     .queue_submit = @as(c.PFN_vkQueueSubmit, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkQueueSubmit"))) orelse return error.FunctionNotFound,
                     .queue_present = @as(c.PFN_vkQueuePresentKHR, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkQueuePresentKHR"))) orelse return error.FunctionNotFound,
+                    .queue_wait_idle = @as(c.PFN_vkQueueWaitIdle, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkQueueWaitIdle"))) orelse return error.FunctionNotFound,
                     .get_swapchain_images = @as(c.PFN_vkGetSwapchainImagesKHR, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkGetSwapchainImagesKHR"))) orelse return error.FunctionNotFound,
                     .get_image_memory_requirements = @as(c.PFN_vkGetImageMemoryRequirements, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkGetImageMemoryRequirements"))) orelse return error.FunctionNotFound,
                     .get_buffer_memory_requirements = @as(c.PFN_vkGetBufferMemoryRequirements, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkGetBufferMemoryRequirements"))) orelse return error.FunctionNotFound,
@@ -582,19 +592,24 @@ pub const Vulkan = struct {
                     .cmd_begin_render_pass = @as(c.PFN_vkCmdBeginRenderPass, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdBeginRenderPass"))) orelse return error.FunctionNotFound,
                     .cmd_bind_pipeline = @as(c.PFN_vkCmdBindPipeline, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdBindPipeline"))) orelse return error.FunctionNotFound,
                     .cmd_bind_vertex_buffer = @as(c.PFN_vkCmdBindVertexBuffers, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdBindVertexBuffers"))) orelse return error.FunctionNotFound,
+                    .cmd_bind_index_buffer = @as(c.PFN_vkCmdBindIndexBuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdBindIndexBuffer"))) orelse return error.FunctionNotFound,
                     .cmd_set_viewport = @as(c.PFN_vkCmdSetViewport, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdSetViewport"))) orelse return error.FunctionNotFound,
                     .cmd_set_scissor = @as(c.PFN_vkCmdSetScissor, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdSetScissor"))) orelse return error.FunctionNotFound,
                     .cmd_draw = @as(c.PFN_vkCmdDraw, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdDraw"))) orelse return error.FunctionNotFound,
+                    .cmd_draw_indexed = @as(c.PFN_vkCmdDrawIndexed, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdDrawIndexed"))) orelse return error.FunctionNotFound,
+                    .cmd_copy_buffer = @as(c.PFN_vkCmdCopyBuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdCopyBuffer"))) orelse return error.FunctionNotFound,
                     .end_render_pass = @as(c.PFN_vkCmdEndRenderPass, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdEndRenderPass"))) orelse return error.FunctionNotFound,
                     .end_command_buffer = @as(c.PFN_vkEndCommandBuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkEndCommandBuffer"))) orelse return error.FunctionNotFound,
                     .reset_command_buffer = @as(c.PFN_vkResetCommandBuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkResetCommandBuffer"))) orelse return error.FunctionNotFound,
                     .free_memory = @as(c.PFN_vkFreeMemory, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkFreeMemory"))) orelse return error.FunctionNotFound,
+                    .free_command_buffers = @as(c.PFN_vkFreeCommandBuffers, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkFreeCommandBuffers"))) orelse return error.FunctionNotFound,
                     .map_memory = @as(c.PFN_vkMapMemory, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkMapMemory"))) orelse return error.FunctionNotFound,
                     .unmap_memory = @as(c.PFN_vkUnmapMemory, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkUnmapMemory"))) orelse return error.FunctionNotFound,
                     .destroy = @as(c.PFN_vkDestroyDevice, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroyDevice"))) orelse return error.FunctionNotFound,
                 },
                 .queues = queues,
                 .physical_device = physical_device,
+                .memory_properties = memory_properties,
             };
         }
 
@@ -707,11 +722,11 @@ pub const Vulkan = struct {
             return buffer;
         }
 
-        pub fn map_memory(self: Device, memory: c.VkDeviceMemory, vertex_buffer: []const Buffer.Vertex) !void {
+        pub fn map_memory(self: Device, memory: c.VkDeviceMemory, comptime T: type, buffer: []const T) !void {
             var data: ?*anyopaque = undefined;
 
-            try check(self.dispatch.map_memory(self.handle, memory, 0, vertex_buffer.len * @sizeOf(Buffer.Vertex), 0, &data));
-            @memcpy(@as([*]Buffer.Vertex, @ptrCast(@alignCast(data))), vertex_buffer);
+            try check(self.dispatch.map_memory(self.handle, memory, 0, buffer.len * @sizeOf(T), 0, &data));
+            @memcpy(@as([*]T, @ptrCast(@alignCast(data))), buffer);
             self.unmap_memory(memory);
         }
 
@@ -758,6 +773,10 @@ pub const Vulkan = struct {
             try check(self.dispatch.queue_present(self.queues[1].handle, &info));
         }
 
+        pub fn queue_wait_idle(self: Device, queue: c.VkQueue) !void {
+            try check(self.dispatch.queue_wait_idle(queue));
+        }
+
         pub fn begin_command_buffer(self: Device, command_buffer: c.VkCommandBuffer, info: c.VkCommandBufferBeginInfo) !void {
             try check(self.dispatch.begin_command_buffer(command_buffer, &info));
         }
@@ -774,6 +793,10 @@ pub const Vulkan = struct {
             self.dispatch.cmd_bind_vertex_buffer(command_buffer, 0, 1, &buffer, &0);
         }
 
+        pub fn cmd_bind_index_buffer(self: Device, command_buffer: c.VkCommandBuffer, buffer: c.VkBuffer) void {
+            self.dispatch.cmd_bind_index_buffer(command_buffer, buffer, 0, c.VK_INDEX_TYPE_UINT16);
+        }
+
         pub fn cmd_set_viewport(self: Device, command_buffer: c.VkCommandBuffer, viewport: c.VkViewport) void {
             self.dispatch.cmd_set_viewport(command_buffer, 0, 1, &viewport);
         }
@@ -782,8 +805,16 @@ pub const Vulkan = struct {
             self.dispatch.cmd_set_scissor(command_buffer, 0, 1, &scissor);
         }
 
-        pub fn cmd_draw(self: Device, command_buffer: c.VkCommandBuffer) void {
-            self.dispatch.cmd_draw(command_buffer, @as(u32, @intCast(Buffer.Vertex.default.len)), 1, 0, 0);
+        pub fn cmd_copy_buffer(self: Device, command_buffer: c.VkCommandBuffer, src: c.VkBuffer, dst: c.VkBuffer, copy: c.VkBufferCopy) void {
+            self.dispatch.cmd_copy_buffer(command_buffer, src, dst, 1, &copy);
+        }
+
+        pub fn cmd_draw(self: Device, command_buffer: c.VkCommandBuffer, size: u32) void {
+            self.dispatch.cmd_draw(command_buffer, size, 1, 0, 0);
+        }
+
+        pub fn cmd_draw_indexed(self: Device, command_buffer: c.VkCommandBuffer, size: u32) void {
+            self.dispatch.cmd_draw_indexed(command_buffer, size, 1, 0, 0, 0);
         }
 
         pub fn end_render_pass(self: Device, command_buffer: c.VkCommandBuffer) void {
@@ -844,6 +875,10 @@ pub const Vulkan = struct {
 
         pub fn free_memory(self: Device, memory: c.VkDeviceMemory) void {
             self.dispatch.free_memory(self.handle, memory, null);
+        }
+
+        pub fn free_command_buffers(self: Device, command_pool: c.VkCommandPool, n: u32, command_buffer: *const c.VkCommandBuffer) void {
+            self.dispatch.free_command_buffers(self.handle, command_pool, n, command_buffer);
         }
 
         pub fn destroy(self: Device) void {
@@ -1193,9 +1228,9 @@ pub const Vulkan = struct {
             const vertex_input_state_info: c.VkPipelineVertexInputStateCreateInfo = .{
                 .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
                 .vertexBindingDescriptionCount = 1,
-                .pVertexBindingDescriptions = &Buffer.Vertex.binding_description,
-                .vertexAttributeDescriptionCount = Buffer.Vertex.attribute_descriptions.len,
-                .pVertexAttributeDescriptions = &Buffer.Vertex.attribute_descriptions[0],
+                .pVertexBindingDescriptions = &BufferHandle.Vertex.binding_description,
+                .vertexAttributeDescriptionCount = BufferHandle.Vertex.attribute_descriptions.len,
+                .pVertexAttributeDescriptions = &BufferHandle.Vertex.attribute_descriptions[0],
             };
 
             const input_assembly_state_info: c.VkPipelineInputAssemblyStateCreateInfo = .{
@@ -1367,7 +1402,7 @@ pub const Vulkan = struct {
         handle: c.VkCommandPool,
         buffer: c.VkCommandBuffer,
 
-        pub fn record(self: CommandPool, device: Device, pipeline: GraphicsPipeline, swapchain: Swapchain, buffer: Buffer, index: u32) !void {
+        pub fn record(self: CommandPool, device: Device, pipeline: GraphicsPipeline, swapchain: Swapchain, buffers: BufferHandle, index: u32) !void {
             try device.reset_command_buffer(self.buffer);
             try device.begin_command_buffer(self.buffer, .{
                 .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -1388,7 +1423,8 @@ pub const Vulkan = struct {
             });
 
             device.cmd_bind_pipeline(self.buffer, pipeline.handle);
-            device.cmd_bind_vertex_buffer(self.buffer, buffer.handle);
+            device.cmd_bind_vertex_buffer(self.buffer, buffers.vertex.handle);
+            device.cmd_bind_index_buffer(self.buffer, buffers.index.handle);
             device.cmd_set_viewport(self.buffer, .{
                 .x = 0.0,
                 .y = 0.0,
@@ -1403,7 +1439,8 @@ pub const Vulkan = struct {
                 .extent = swapchain.extent,
             });
 
-            device.cmd_draw(self.buffer);
+            // device.cmd_draw(self.buffer, BufferHandle.Vertex.default.len);
+            device.cmd_draw_indexed(self.buffer, BufferHandle.Index.default.len);
             device.end_render_pass(self.buffer);
             device.end_command_buffer(self.buffer) catch {
                 configuration.logger.log(.Warn, "Failed to end command buffer", .{});
@@ -1481,16 +1518,134 @@ pub const Vulkan = struct {
         }
     };
 
-    pub const Buffer = struct {
-        handle: c.VkBuffer,
+    pub const BufferHandle = struct {
+        index: Buffer,
+        vertex: Buffer,
+
+        pub const Buffer = struct {
+            handle: c.VkBuffer,
+            memory: c.VkDeviceMemory,
+
+            fn new(
+                device: Device,
+                command_pool: c.VkCommandPool,
+                memory_properties: c.VkPhysicalDeviceMemoryProperties,
+                opt_usage: ?c.VkBufferUsageFlags,
+                opt_properties: ?c.VkMemoryPropertyFlags,
+                comptime T: type,
+                data: ?[]const T,
+                size: u32,
+            ) !Buffer {
+                const usage = opt_usage orelse c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+                const properties = opt_properties orelse c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+                const buffer = try device.create_buffer(.{
+                    .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                    .size = size,
+                    .usage = usage,
+                    .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+                });
+
+                const memory_requirements = device.get_buffer_memory_requirements(buffer);
+
+                const index = blk: for (0..memory_properties.memoryTypeCount) |i| {
+                    if ((memory_requirements.memoryTypeBits & (@as(u32, @intCast(1)) << @as(u5, @intCast(i)))) != 0 and (memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
+                        break :blk i;
+                    }
+                } else {
+                    configuration.logger.log(.Error, "Could not find memory type that suit the need of buffer allocation", .{});
+                    return error.NoMemoryRequirementsPassed;
+                };
+
+                const memory = try device.allocate_memory(.{
+                    .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                    .allocationSize = memory_requirements.size,
+                    .memoryTypeIndex = @as(u32, @intCast(index)),
+                });
+
+                try device.bind_buffer_memory(buffer, memory);
+
+                if (data) |b| {
+                    const staging_buffer = try Buffer.new(device, command_pool, memory_properties, null, null, T, null, size);
+                    try device.map_memory(staging_buffer.memory, T, b);
+
+                    const command_buffer = device.allocate_command_buffer(.{
+                        .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                        .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                        .commandPool = command_pool,
+                        .commandBufferCount = 1,
+                    }) catch |e| {
+                        configuration.logger.log(.Error, "Failed to allocate command buffer", .{});
+
+                        return e;
+                    };
+
+                    try device.begin_command_buffer(command_buffer, .{
+                        .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+                        .flags = c.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+                    });
+
+                    device.cmd_copy_buffer(command_buffer, staging_buffer.handle, buffer, .{
+                        .srcOffset = 0,
+                        .dstOffset = 0,
+                        .size = size,
+                    });
+
+                    try device.end_command_buffer(command_buffer);
+
+                    try device.queue_submit(.{
+                        .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                        .commandBufferCount = 1,
+                        .pCommandBuffers = &command_buffer,
+                        }, null);
+
+                    try device.queue_wait_idle(device.queues[0].handle);
+
+                    device.free_command_buffers(command_pool, 1, &command_buffer);
+                    device.destroy_buffer(staging_buffer.handle);
+                    device.free_memory(staging_buffer.memory);
+                }
+
+                return .{
+                    .handle = buffer,
+                    .memory = memory,
+                };
+            }
+
+            pub fn destroy(self: Buffer, device: Device) void {
+                device.destroy_buffer(self.handle);
+                device.free_memory(self.memory);
+            }
+        };
+
+        pub const Index = struct {
+            pub const default = [_]u16 {
+                    0, 1, 2, 2, 3, 0
+            };
+
+            pub fn new(device: Device, command_pool: CommandPool) !Buffer {
+                return try Buffer.new(
+                    device,
+                    command_pool.handle,
+                    device.memory_properties,
+                    c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                    c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                    u16,
+                    &default,
+                    @sizeOf(u16) * default.len
+                );
+            }
+        };
 
         pub const Vertex = struct {
             position: [2]f32,
             color: [3]f32,
 
+            const Self = @This();
+
             pub const binding_description: c.VkVertexInputBindingDescription = .{
                 .binding = 0,
-                .stride = @sizeOf(Vertex),
+                .stride = @sizeOf(Self),
                 .inputRate = c.VK_VERTEX_INPUT_RATE_VERTEX,
             };
 
@@ -1499,70 +1654,54 @@ pub const Vulkan = struct {
                     .binding = 0,
                     .location = 0,
                     .format = c.VK_FORMAT_R32G32_SFLOAT,
-                    .offset = @offsetOf(Vertex, "position"),
+                    .offset = @offsetOf(Self, "position"),
                 },
                 .{
                     .binding = 0,
                     .location = 1,
                     .format = c.VK_FORMAT_R32G32B32_SFLOAT,
-                    .offset = @offsetOf(Vertex, "color"),
+                    .offset = @offsetOf(Self, "color"),
                 },
             };
 
-            pub const default: [3]Vertex = .{
-                Vertex {
+            pub const default = [_]Self {
+                Self {
                     .position = .{0.0, -0.5},
                     .color = .{1.0, 0.0, 0.0},
                 },
-                Vertex {
+                Self {
                     .position = .{0.5, 0.5},
                     .color = .{0.0, 1.0, 0.0},
                 },
-                Vertex {
+                Self {
                     .position = .{-0.5, 0.5},
                     .color = .{1.0, 1.0, 1.0},
                 },
             };
+
+            pub fn new(device: Device, command_pool: CommandPool) !Buffer {
+                return try Buffer.new(
+                    device, command_pool.handle,
+                    device.memory_properties,
+                    c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                    c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                    Self,
+                    &default,
+                    @sizeOf(Self) * default.len
+                );
+            }
         };
 
-        pub fn new(device: Device, instance: Instance) !Buffer {
-            const buffer = try device.create_buffer(.{
-                .sType = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                .size = @sizeOf(Vertex) * Vertex.default.len,
-                .usage = c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
-            });
-
-            const memory_requirements = device.get_buffer_memory_requirements(buffer);
-            const physical_device_memory_properties = instance.get_physical_device_memory_properties(device.physical_device);
-
-            const filter = memory_requirements.memoryTypeBits;
-            const properties = c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-            const index = blk: for (0..physical_device_memory_properties.memoryTypeCount) |i| {
-                if ((filter & (@as(u32, @intCast(1)) << @as(u5, @intCast(i)))) != 0 and (physical_device_memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
-                    break :blk i;
-                }
-            } else {
-                configuration.logger.log(.Error, "Could not find memory type that suit the need for buffer allocation", .{});
-                return error.NoMemoryRequirementsPassed;
-            };
-
-            const memory = try device.allocate_memory(.{
-                .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-                .allocationSize = memory_requirements.size,
-                .memoryTypeIndex = @as(u32, @intCast(index)),
-            });
-
-            try device.bind_buffer_memory(buffer, memory);
-            try device.map_memory(memory, &Vertex.default);
-
+        pub fn new(device: Device, command_pool: CommandPool) !BufferHandle {
             return .{
-                .handle = buffer,
+                .vertex = try Vertex.new(device, command_pool),
+                .index = try Index.new(device, command_pool),
             };
         }
 
-        pub fn destroy(self: Buffer, device: Device) void {
-            device.destroy_buffer(self.handle);
+        pub fn destroy(self: BufferHandle, device: Device) void {
+            self.index.destroy(device);
+            self.vertex.destroy(device);
         }
     };
 
