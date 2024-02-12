@@ -16,7 +16,6 @@ pub const Application = struct {
     event_system: EventSystem,
 
     allocator: std.mem.Allocator,
-    state: State = .Suspended,
 
     pub const logger = configuration.logger;
 
@@ -33,7 +32,7 @@ pub const Application = struct {
         };
 
         const event_system = EventSystem.default(allocator) catch {
-            logger.log(.Fatal, "Could not create event handler system", .{});
+            logger.log(.Fatal, "Could not create event handle system", .{});
             unreachable;
         };
 
@@ -47,17 +46,19 @@ pub const Application = struct {
             .backend = backend,
             .event_system = event_system,
             .allocator = allocator,
-            .state = .Running,
         };
     }
 
     pub fn run(self: *Application) void {
-        while (self.state != .Closing) {
-            if (self.state != .Suspended) {
-                // self.event_system.input(self.backend.window.handler);
-                self.game.update();
+        while (self.event_system.state != .Closing) {
+            if (self.event_system.state != .Suspended) {
+                self.backend.draw() catch {
+                    configuration.logger.log(.Error, "Unrecoverable problem occoured on frame", .{});
+                    self.event_system.state = .Closing;
+                };
 
-                self.state = .Closing;
+                self.game.update();
+                self.event_system.input(self.backend.window.handle);
             }
         }
 
@@ -77,7 +78,7 @@ pub const Test = struct {
         _ = code;
     }
 
-    fn handler(self: *Self) EventSystem.Event.Handler {
+    fn handle(self: *Self) EventSystem.Event.Handle {
         return .{
             .ptr = self,
             .listen_fn = listen,

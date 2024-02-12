@@ -4,10 +4,12 @@ const _wrapper = @import("renderer/wrapper.zig");
 
 const Glfw = _wrapper.Glfw;
 const logger = _utility.Configuration.logger;
+const State = _utility.State;
 
 pub const EventSystem = struct {
     events: [@intCast(@intFromEnum(Event.Type.Max))]Event,
     clock: f64,
+    state: State,
 
     pub const Event = struct {
         handlers: []Handler,
@@ -73,6 +75,7 @@ pub const EventSystem = struct {
         return .{
             .events = events,
             .clock = Glfw.get_time(),
+            .state = .Running,
         };
     }
 
@@ -80,10 +83,14 @@ pub const EventSystem = struct {
         Glfw.poll_events();
 
         const current_time = Glfw.get_time();
-        const delta = current_time - self.clock;
+        // const delta = current_time - self.clock;
 
         self.clock = current_time;
-        _ = delta;
+        // logger.log(.Debug, "Total time to create vulkan renderer backend: {} seconds", .{delta});
+
+        if (Glfw.window_should_close(window)) {
+            self.state = .Closing;
+        }
 
         for (keys) |key| {
             if (Glfw.get_key(window, key) == Press) {
@@ -99,6 +106,7 @@ pub const EventSystem = struct {
 
         if (self.events.len <= code) {
             logger.log(.Error, "Event for code '{}' not found", .{code});
+
             return error.EventNotFound;
         }
 
