@@ -12,6 +12,7 @@
     devShells.${system}.default = pkgs.mkShell {
       packages = with pkgs; [
         glfw
+        kakoune
         lldb
         vulkan-loader
         vulkan-headers
