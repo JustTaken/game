@@ -114,7 +114,7 @@ pub const Backend = struct {
             }
         };
 
-        self.command_pool.record_command_buffer(self.instance, self.graphics_pipeline, self.swapchain, image_index) catch |e| {
+        self.command_pool.record(self.device, self.graphics_pipeline, self.swapchain, self.buffer, image_index) catch |e| {
             configuration.logger.log(.Error, "Backend failed to record command buffer", .{});
 
             return e;

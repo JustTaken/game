@@ -115,15 +115,6 @@ pub const Vulkan = struct {
             get_physical_device_surface_support: *const fn (c.VkPhysicalDevice, u32, c.VkSurfaceKHR, *u32) callconv(.C) i32,
             get_physical_device_memory_properties: *const fn (c.VkPhysicalDevice, *c.VkPhysicalDeviceMemoryProperties) callconv(.C) void,
             get_physical_device_format_properties: *const fn (c.VkPhysicalDevice, c.VkFormat, *c.VkFormatProperties) callconv(.C) void,
-            begin_command_buffer: *const fn (c.VkCommandBuffer, *const c.VkCommandBufferBeginInfo) callconv(.C) i32,
-            cmd_begin_render_pass: *const fn (c.VkCommandBuffer, *const c.VkRenderPassBeginInfo, c.VkSubpassContents) callconv(.C) void,
-            cmd_bind_pipeline: *const fn (c.VkCommandBuffer, c.VkPipelineBindPoint, c.VkPipeline) callconv(.C) void,
-            cmd_set_viewport: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkViewport) callconv(.C) void,
-            cmd_set_scissor: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkRect2D ) callconv(.C) void,
-            cmd_draw: *const fn (c.VkCommandBuffer, u32, u32, u32, u32) callconv(.C) void,
-            end_render_pass: *const fn (c.VkCommandBuffer) callconv(.C) void,
-            end_command_buffer: *const fn (c.VkCommandBuffer) callconv(.C) i32,
-            reset_command_buffer: *const fn (c.VkCommandBuffer, c.VkCommandBufferResetFlags) callconv(.C) i32,
             destroy_surface: *const fn (c.VkInstance, c.VkSurfaceKHR, ?*const c.VkAllocationCallbacks) callconv(.C) void,
             destroy: *const fn (c.VkInstance, ?*const c.VkAllocationCallbacks) callconv(.C) void,
         };
@@ -173,15 +164,6 @@ pub const Vulkan = struct {
                     .get_physical_device_memory_properties = @as(c.PFN_vkGetPhysicalDeviceMemoryProperties, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceMemoryProperties"))) orelse return error.FunctionNotFound,
                     .get_physical_device_format_properties = @as(c.PFN_vkGetPhysicalDeviceFormatProperties, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFormatProperties"))) orelse return error.FunctionNotFound,
                     .create_device = @as(c.PFN_vkCreateDevice, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkCreateDevice"))) orelse return error.FunctionNotFound,
-                    .begin_command_buffer = @as(c.PFN_vkBeginCommandBuffer, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkBeginCommandBuffer"))) orelse return error.FunctionNotFound,
-                    .cmd_begin_render_pass = @as(c.PFN_vkCmdBeginRenderPass, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkCmdBeginRenderPass"))) orelse return error.FunctionNotFound,
-                    .cmd_bind_pipeline = @as(c.PFN_vkCmdBindPipeline, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkCmdBindPipeline"))) orelse return error.FunctionNotFound,
-                    .cmd_set_viewport = @as(c.PFN_vkCmdSetViewport, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkCmdSetViewport"))) orelse return error.FunctionNotFound,
-                    .cmd_set_scissor = @as(c.PFN_vkCmdSetScissor, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkCmdSetScissor"))) orelse return error.FunctionNotFound,
-                    .cmd_draw = @as(c.PFN_vkCmdDraw, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkCmdDraw"))) orelse return error.FunctionNotFound,
-                    .end_render_pass = @as(c.PFN_vkCmdEndRenderPass, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkCmdEndRenderPass"))) orelse return error.FunctionNotFound,
-                    .end_command_buffer = @as(c.PFN_vkEndCommandBuffer, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkEndCommandBuffer"))) orelse return error.FunctionNotFound,
-                    .reset_command_buffer = @as(c.PFN_vkResetCommandBuffer, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkResetCommandBuffer"))) orelse return error.FunctionNotFound,
                     .destroy = @as(c.PFN_vkDestroyInstance, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkDestroyInstance"))) orelse return error.FunctionNotFound,
                 },
             };
@@ -306,41 +288,6 @@ pub const Vulkan = struct {
             return properties;
         }
 
-        pub fn begin_command_buffer(self: Instance, command_buffer: c.VkCommandBuffer, info: c.VkCommandBufferBeginInfo) !void {
-            try check(self.dispatch.begin_command_buffer(command_buffer, &info));
-        }
-
-        pub fn cmd_begin_render_pass(self: Instance, command_buffer: c.VkCommandBuffer, info: c.VkRenderPassBeginInfo) void {
-            self.dispatch.cmd_begin_render_pass(command_buffer, &info, c.VK_SUBPASS_CONTENTS_INLINE);
-        }
-
-        pub fn cmd_bind_pipeline(self: Instance, command_buffer: c.VkCommandBuffer, pipeline: c.VkPipeline) void {
-            self.dispatch.cmd_bind_pipeline(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-        }
-
-        pub fn cmd_set_viewport(self: Instance, command_buffer: c.VkCommandBuffer, viewport: c.VkViewport) void {
-            self.dispatch.cmd_set_viewport(command_buffer, 0, 1, &viewport);
-        }
-
-        pub fn cmd_set_scissor(self: Instance, command_buffer: c.VkCommandBuffer, scissor: c.VkRect2D) void {
-            self.dispatch.cmd_set_scissor(command_buffer, 0, 1, &scissor);
-        }
-
-        pub fn cmd_draw(self: Instance, command_buffer: c.VkCommandBuffer) void {
-            self.dispatch.cmd_draw(command_buffer, 3, 1, 0, 0);
-        }
-
-        pub fn end_render_pass(self: Instance, command_buffer: c.VkCommandBuffer) void {
-            self.dispatch.end_render_pass(command_buffer);
-        }
-
-        pub fn end_command_buffer(self: Instance, command_buffer: c.VkCommandBuffer) !void {
-            try check(self.dispatch.end_command_buffer(command_buffer));
-        }
-
-        pub fn reset_command_buffer(self: Instance, command_buffer: c.VkCommandBuffer) !void {
-            try check(self.dispatch.reset_command_buffer(command_buffer, 0));
-        }
 
         pub fn destroy(self: Instance) void {
             self.dispatch.destroy(self.handle, null);
@@ -428,6 +375,18 @@ pub const Vulkan = struct {
             destroy_fence: *const fn (c.VkDevice, c.VkFence, ?*const c.VkAllocationCallbacks) callconv(.C) void,
             destroy_framebuffer: *const fn (c.VkDevice, c.VkFramebuffer, ?*const c.VkAllocationCallbacks) callconv(.C) void,
             destroy_buffer: *const fn (c.VkDevice, c.VkBuffer, ?*const c.VkAllocationCallbacks) callconv(.C) void,
+            begin_command_buffer: *const fn (c.VkCommandBuffer, *const c.VkCommandBufferBeginInfo) callconv(.C) i32,
+
+            cmd_begin_render_pass: *const fn (c.VkCommandBuffer, *const c.VkRenderPassBeginInfo, c.VkSubpassContents) callconv(.C) void,
+            cmd_bind_pipeline: *const fn (c.VkCommandBuffer, c.VkPipelineBindPoint, c.VkPipeline) callconv(.C) void,
+            cmd_bind_vertex_buffer: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkBuffer, *const u64) callconv(.C) void,
+            cmd_set_viewport: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkViewport) callconv(.C) void,
+            cmd_set_scissor: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkRect2D ) callconv(.C) void,
+            cmd_draw: *const fn (c.VkCommandBuffer, u32, u32, u32, u32) callconv(.C) void,
+            end_render_pass: *const fn (c.VkCommandBuffer) callconv(.C) void,
+            end_command_buffer: *const fn (c.VkCommandBuffer) callconv(.C) i32,
+            reset_command_buffer: *const fn (c.VkCommandBuffer, c.VkCommandBufferResetFlags) callconv(.C) i32,
+
             free_memory: *const fn (c.VkDevice, c.VkDeviceMemory, ?*const c.VkAllocationCallbacks) callconv(.C) void,
             map_memory: *const fn (c.VkDevice, c.VkDeviceMemory, u64, u64, u32, *?*anyopaque) callconv(.C) i32,
             unmap_memory: *const fn (c.VkDevice, c.VkDeviceMemory) callconv(.C) void,
@@ -619,6 +578,16 @@ pub const Vulkan = struct {
                     .destroy_fence = @as(c.PFN_vkDestroyFence, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroyFence"))) orelse return error.FunctionNotFound,
                     .destroy_framebuffer = @as(c.PFN_vkDestroyFramebuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroyFramebuffer"))) orelse return error.FunctionNotFound,
                     .destroy_buffer = @as(c.PFN_vkDestroyBuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroyBuffer"))) orelse return error.FunctionNotFound,
+                    .begin_command_buffer = @as(c.PFN_vkBeginCommandBuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkBeginCommandBuffer"))) orelse return error.FunctionNotFound,
+                    .cmd_begin_render_pass = @as(c.PFN_vkCmdBeginRenderPass, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdBeginRenderPass"))) orelse return error.FunctionNotFound,
+                    .cmd_bind_pipeline = @as(c.PFN_vkCmdBindPipeline, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdBindPipeline"))) orelse return error.FunctionNotFound,
+                    .cmd_bind_vertex_buffer = @as(c.PFN_vkCmdBindVertexBuffers, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdBindVertexBuffers"))) orelse return error.FunctionNotFound,
+                    .cmd_set_viewport = @as(c.PFN_vkCmdSetViewport, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdSetViewport"))) orelse return error.FunctionNotFound,
+                    .cmd_set_scissor = @as(c.PFN_vkCmdSetScissor, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdSetScissor"))) orelse return error.FunctionNotFound,
+                    .cmd_draw = @as(c.PFN_vkCmdDraw, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdDraw"))) orelse return error.FunctionNotFound,
+                    .end_render_pass = @as(c.PFN_vkCmdEndRenderPass, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdEndRenderPass"))) orelse return error.FunctionNotFound,
+                    .end_command_buffer = @as(c.PFN_vkEndCommandBuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkEndCommandBuffer"))) orelse return error.FunctionNotFound,
+                    .reset_command_buffer = @as(c.PFN_vkResetCommandBuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkResetCommandBuffer"))) orelse return error.FunctionNotFound,
                     .free_memory = @as(c.PFN_vkFreeMemory, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkFreeMemory"))) orelse return error.FunctionNotFound,
                     .map_memory = @as(c.PFN_vkMapMemory, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkMapMemory"))) orelse return error.FunctionNotFound,
                     .unmap_memory = @as(c.PFN_vkUnmapMemory, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkUnmapMemory"))) orelse return error.FunctionNotFound,
@@ -787,6 +756,46 @@ pub const Vulkan = struct {
 
         pub fn queue_present(self: Device, info: c.VkPresentInfoKHR) !void {
             try check(self.dispatch.queue_present(self.queues[1].handle, &info));
+        }
+
+        pub fn begin_command_buffer(self: Device, command_buffer: c.VkCommandBuffer, info: c.VkCommandBufferBeginInfo) !void {
+            try check(self.dispatch.begin_command_buffer(command_buffer, &info));
+        }
+
+        pub fn cmd_begin_render_pass(self: Device, command_buffer: c.VkCommandBuffer, info: c.VkRenderPassBeginInfo) void {
+            self.dispatch.cmd_begin_render_pass(command_buffer, &info, c.VK_SUBPASS_CONTENTS_INLINE);
+        }
+
+        pub fn cmd_bind_pipeline(self: Device, command_buffer: c.VkCommandBuffer, pipeline: c.VkPipeline) void {
+            self.dispatch.cmd_bind_pipeline(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        }
+
+        pub fn cmd_bind_vertex_buffer(self: Device, command_buffer: c.VkCommandBuffer, buffer: c.VkBuffer) void {
+            self.dispatch.cmd_bind_vertex_buffer(command_buffer, 0, 1, &buffer, &0);
+        }
+
+        pub fn cmd_set_viewport(self: Device, command_buffer: c.VkCommandBuffer, viewport: c.VkViewport) void {
+            self.dispatch.cmd_set_viewport(command_buffer, 0, 1, &viewport);
+        }
+
+        pub fn cmd_set_scissor(self: Device, command_buffer: c.VkCommandBuffer, scissor: c.VkRect2D) void {
+            self.dispatch.cmd_set_scissor(command_buffer, 0, 1, &scissor);
+        }
+
+        pub fn cmd_draw(self: Device, command_buffer: c.VkCommandBuffer) void {
+            self.dispatch.cmd_draw(command_buffer, @as(u32, @intCast(Buffer.Vertex.default.len)), 1, 0, 0);
+        }
+
+        pub fn end_render_pass(self: Device, command_buffer: c.VkCommandBuffer) void {
+            self.dispatch.end_render_pass(command_buffer);
+        }
+
+        pub fn end_command_buffer(self: Device, command_buffer: c.VkCommandBuffer) !void {
+            try check(self.dispatch.end_command_buffer(command_buffer));
+        }
+
+        pub fn reset_command_buffer(self: Device, command_buffer: c.VkCommandBuffer) !void {
+            try check(self.dispatch.reset_command_buffer(command_buffer, 0));
         }
 
         pub fn destroy_command_pool(self: Device, command_pool: c.VkCommandPool) void {
@@ -1358,15 +1367,15 @@ pub const Vulkan = struct {
         handle: c.VkCommandPool,
         buffer: c.VkCommandBuffer,
 
-        pub fn record_command_buffer(self: CommandPool, instance: Instance, pipeline: GraphicsPipeline, swapchain: Swapchain, index: u32) !void {
-            try instance.reset_command_buffer(self.buffer);
-            try instance.begin_command_buffer(self.buffer, .{
+        pub fn record(self: CommandPool, device: Device, pipeline: GraphicsPipeline, swapchain: Swapchain, buffer: Buffer, index: u32) !void {
+            try device.reset_command_buffer(self.buffer);
+            try device.begin_command_buffer(self.buffer, .{
                 .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
                 .flags = 0,
                 .pInheritanceInfo = null,
             });
 
-            instance.cmd_begin_render_pass(self.buffer, .{
+            device.cmd_begin_render_pass(self.buffer, .{
                 .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
                 .renderPass = pipeline.render_pass,
                 .framebuffer = swapchain.framebuffers[index],
@@ -1378,8 +1387,9 @@ pub const Vulkan = struct {
                 .clearValueCount = 1,
             });
 
-            instance.cmd_bind_pipeline(self.buffer, pipeline.handle);
-            instance.cmd_set_viewport(self.buffer, .{
+            device.cmd_bind_pipeline(self.buffer, pipeline.handle);
+            device.cmd_bind_vertex_buffer(self.buffer, buffer.handle);
+            device.cmd_set_viewport(self.buffer, .{
                 .x = 0.0,
                 .y = 0.0,
                 .width = @as(f32, @floatFromInt(swapchain.extent.width)),
@@ -1388,14 +1398,14 @@ pub const Vulkan = struct {
                 .maxDepth = 1.0,
             });
 
-            instance.cmd_set_scissor(self.buffer, .{
+            device.cmd_set_scissor(self.buffer, .{
                 .offset = .{ .x = 0, .y = 0},
                 .extent = swapchain.extent,
             });
 
-            instance.cmd_draw(self.buffer);
-            instance.end_render_pass(self.buffer);
-            instance.end_command_buffer(self.buffer) catch {
+            device.cmd_draw(self.buffer);
+            device.end_render_pass(self.buffer);
+            device.end_command_buffer(self.buffer) catch {
                 configuration.logger.log(.Warn, "Failed to end command buffer", .{});
             };
         }
@@ -1510,7 +1520,7 @@ pub const Vulkan = struct {
                 },
                 Vertex {
                     .position = .{-0.5, 0.5},
-                    .color = .{0.0, 0.0, 1.0},
+                    .color = .{1.0, 1.0, 1.0},
                 },
             };
         };
