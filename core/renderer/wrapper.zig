@@ -1,5 +1,6 @@
 const std = @import("std");
 const _utility = @import("../utility.zig");
+const Backend = @import("backend.zig").Backend;
 
 pub const c = @cImport({
     @cInclude("vulkan/vulkan.h");
@@ -8,6 +9,9 @@ pub const c = @cImport({
 
 const configuration = _utility.Configuration;
 const Io = _utility.Io;
+
+var SNAP_ARENA = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+const SNAP_ALLOCATOR = SNAP_ARENA.allocator();
 
 const REQUIRED_DEVICE_EXTENSIONS = [_][*:0]const u8 { c.VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
@@ -98,6 +102,15 @@ pub const Glfw = struct {
 };
 
 pub const Vulkan = struct {
+    instance: Instance,
+    window: Window,
+    device: Device,
+    swapchain: Swapchain,
+    graphics_pipeline: GraphicsPipeline,
+    command_pool: CommandPool,
+    sync: Sync,
+    buffer_handle: BufferHandle,
+
     pub const Instance = struct {
         handle: c.VkInstance,
         dispatch: Dispatch,
@@ -787,10 +800,10 @@ pub const Vulkan = struct {
             return memory;
         }
 
-        pub fn acquire_next_image(self: Device, swapchain: *Swapchain, semaphore: c.VkSemaphore) !u32 {
+        pub fn acquire_next_image(self: Device, swapchain: c.VkSwapchainKHR, semaphore: c.VkSemaphore) !u32 {
             const MAX: u64 = 0xFFFFFFFFFFFFFFFF;
             var index: u32 = undefined;
-            try check(self.dispatch.acquire_next_image(self.handle, swapchain.handle, MAX, semaphore, null, &index));
+            try check(self.dispatch.acquire_next_image(self.handle, swapchain, MAX, semaphore, null, &index));
 
             return index;
         }
@@ -848,11 +861,8 @@ pub const Vulkan = struct {
         }
 
         pub fn cmd_bind_descriptor_sets(self: Device, command_buffer: c.VkCommandBuffer, layout: c.VkPipelineLayout, first: u32, count: u32, descriptor_sets: *c.VkDescriptorSet, offsets: ?[]const u32) void {
-            if (offsets) |o| {
-                self.dispatch.cmd_bind_descriptor_sets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, layout, first, count, descriptor_sets, @as(u32, @intCast(o.len)), &o[0]);
-            } else {
-                self.dispatch.cmd_bind_descriptor_sets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, layout, first, count, descriptor_sets, 0, null);
-            }
+            const len: u32 = if (offsets) |o| @as(u32, @intCast(o.len)) else 0;
+            self.dispatch.cmd_bind_descriptor_sets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, layout, first, count, descriptor_sets, len, @ptrCast(offsets));
         }
 
         pub fn update_descriptor_sets(self: Device, write: c.VkWriteDescriptorSet) void {
@@ -965,19 +975,7 @@ pub const Vulkan = struct {
                 break :blk formats[0];
             };
 
-            const present_modes = instance.get_physical_device_surface_present_modes(device.physical_device, window.surface, allocator) catch |e| {
-                configuration.logger.log(.Error, "Failed to list present modes", .{});
-
-                return e;
-            };
-
-            const present_mode = blk: for (present_modes) |mode| {
-                if (mode == c.VK_PRESENT_MODE_MAILBOX_KHR) break :blk mode;
-            } else {
-                configuration.logger.log(.Warn, "Could not find a better present mode falling back to 'Fifo'", .{});
-
-                break :blk c.VK_PRESENT_MODE_FIFO_KHR;
-            };
+            const present_mode = c.VK_PRESENT_MODE_FIFO_KHR;
 
             const capabilities = instance.get_physical_device_surface_capabilities(device.physical_device, window.surface) catch |e| {
                 configuration.logger.log(.Error, "Could not access physical device capabilities", .{});
@@ -1117,7 +1115,7 @@ pub const Vulkan = struct {
             }
 
             self.destroy(device);
-            const new_swapchain = try new(device, instance, window, self.arena);
+            const new_swapchain = try Swapchain.new(device, instance, window, self.arena);
             const allocator = self.arena.allocator();
 
             self.handle = new_swapchain.handle;
@@ -1145,7 +1143,7 @@ pub const Vulkan = struct {
         }
 
         pub fn acquire_next_image(self: *Swapchain, device: Device, sync: Sync) !u32 {
-            return try device.acquire_next_image(self, sync.image_available);
+            return try device.acquire_next_image(self.handle, sync.image_available);
         }
 
         pub fn queue_pass(self: Swapchain, device: Device, command_pool: CommandPool, sync: Sync, index: u32) !void {
@@ -2121,5 +2119,142 @@ pub const Vulkan = struct {
 
     pub fn boolean(flag: u32) bool {
         return flag == c.VK_TRUE;
+    }
+
+    pub fn new() !Vulkan {
+        defer { _ = SNAP_ARENA.deinit(); }
+
+        try Glfw.init();
+
+        const instance = Instance.new(SNAP_ALLOCATOR) catch |e| {
+            configuration.logger.log(.Error, "Failed to create instance", .{});
+
+            return e;
+        };
+
+        const window = Window.new(instance, configuration.default_width, configuration.default_height) catch |e| {
+            configuration.logger.log(.Error, "Failed to create window", .{});
+
+            return e;
+        };
+
+        const device = Device.new(instance, window.surface, SNAP_ALLOCATOR) catch |e| {
+            configuration.logger.log(.Error, "Failed to create device", .{});
+
+            return e;
+        };
+
+        const swapchain = Swapchain.new(device, instance, window, null) catch |e| {
+            configuration.logger.log(.Error, "Failed to create swapchain", .{});
+
+            return e;
+        };
+
+        const graphics_pipeline = GraphicsPipeline.new(device, swapchain, SNAP_ALLOCATOR) catch |e| {
+            configuration.logger.log(.Error, "Failed to create graphics_pipeline", .{});
+
+            return e;
+        };
+
+        const command_pool = CommandPool.new(device) catch |e| {
+            configuration.logger.log(.Error, "Failed to create command pool", .{});
+
+            return e;
+        };
+
+        const sync = Sync.new(device) catch |e| {
+            configuration.logger.log(.Error, "Failed to create sync objects", .{});
+
+            return e;
+        };
+
+        const buffer_handle = BufferHandle.new(device, command_pool, graphics_pipeline) catch |e| {
+            configuration.logger.log(.Error, "Failed to create vertex and index buffers", .{});
+
+            return e;
+        };
+
+        return .{
+            .instance = instance,
+            .window = window,
+            .device = device,
+            .swapchain = swapchain,
+            .graphics_pipeline = graphics_pipeline,
+            .command_pool = command_pool,
+            .sync = sync,
+            .buffer_handle = buffer_handle,
+        };
+    }
+
+    pub fn draw(ptr: *anyopaque) !void {
+        const self: *Vulkan = @ptrCast(@alignCast(ptr));
+        configuration.logger.log(.Debug, "Swapchain: {?}", .{ptr});
+        const image_index = self.swapchain.acquire_next_image(self.device, self.sync) catch |e| {
+            if (Swapchain.has_to_recreate(e)) {
+                configuration.logger.log(.Debug, "Recreating swapchain", .{});
+
+                self.swapchain.recreate(self.device, self.instance, self.graphics_pipeline, self.window) catch |e2| {
+                    configuration.logger.log(.Error, "Recreate swapchain failed, quiting", .{});
+
+                    return e2;
+                };
+
+                return;
+            } else {
+                configuration.logger.log(.Error, "Could not rescue the frame, dying", .{});
+
+                return e;
+            }
+        };
+
+        self.command_pool.record(self.device, &self.graphics_pipeline, self.swapchain, self.buffer_handle, image_index) catch |e| {
+            configuration.logger.log(.Error, "Backend failed to record command buffer", .{});
+
+            return e;
+        };
+
+        self.swapchain.queue_pass(self.device, self.command_pool, self.sync, image_index) catch |e| {
+            if (Swapchain.has_to_recreate(e)) {
+                configuration.logger.log(.Debug, "Recreating swapchain", .{});
+
+                self.swapchain.recreate(self.device, self.instance, self.graphics_pipeline, self.window) catch |e2| {
+                    configuration.logger.log(.Error, "Recreate swapchain failed, quiting application", .{});
+
+                    return e2;
+                };
+
+                return;
+            } else {
+                configuration.logger.log(.Error, "Could not handle current frame presentation, dying", .{});
+
+                return e;
+            }
+        };
+
+        self.sync.wait(self.device) catch {
+            configuration.logger.log(.Warn, "CPU did not wait for the next frame", .{});
+        };
+    }
+
+    pub fn shutdown(ptr: *anyopaque) void {
+        const self: *Vulkan = @ptrCast(@alignCast(ptr));
+        self.buffer_handle.destroy(self.device);
+        self.sync.destroy(self.device);
+        self.graphics_pipeline.destroy(self.device);
+        self.swapchain.destroy(self.device);
+        self.device.destroy();
+        self.window.destroy(self.instance);
+        self.instance.destroy();
+
+        Glfw.shutdown();
+    }
+
+    pub fn backend(self: *Vulkan) Backend {
+        // configuration.logger.log(.Debug, "first - Swapchain: {?}", .{&self});
+        return .{
+            .ptr = self,
+            .draw = draw,
+            .shutdown = shutdown,
+        };
     }
 };

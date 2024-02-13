@@ -3,12 +3,15 @@ const _game = @import("game.zig");
 const _event = @import("event.zig");
 const _utility = @import("utility.zig");
 const _renderer = @import("renderer/backend.zig");
+const _wrapper = @import("renderer/wrapper.zig");
 
 const Game = _game.Game;
 const State = _utility.State;
 const Backend = _renderer.Backend;
 const EventSystem = _event.EventSystem;
 const configuration = _utility.Configuration;
+const Vulkan = _wrapper.Vulkan;
+// const backend = Backend.Platform.Linux;
 
 pub const Application = struct {
     game: Game,
@@ -36,29 +39,34 @@ pub const Application = struct {
             unreachable;
         };
 
-        const backend = Backend.new() catch {
+        var vulkan = Vulkan.new() catch {
             logger.log(.Fatal, "Failed to initialize backend", .{});
             unreachable;
         };
 
+        const back = vulkan.backend();
+
         return .{
             .game = game,
-            .backend = backend,
+            .backend = back,
             .event_system = event_system,
             .allocator = allocator,
         };
     }
 
     pub fn run(self: *Application) void {
+        // const vk: *Vulkan = @ptrCast(@alignCast(self.backend.ptr));
+        configuration.logger.log(.Debug, "Swapchain: {?}", .{self.backend.ptr});
+
         while (self.event_system.state != .Closing) {
             if (self.event_system.state != .Suspended) {
-                self.backend.draw() catch {
+                self.backend.draw(self.backend.ptr) catch {
                     configuration.logger.log(.Error, "Unrecoverable problem occoured on frame", .{});
                     self.event_system.state = .Closing;
                 };
 
                 self.game.update();
-                self.event_system.input(self.backend.window.handle);
+                // self.event_system.input(self.backend.window());
             }
         }
 
@@ -66,7 +74,7 @@ pub const Application = struct {
     }
 
     pub fn shutdown(self: *Application) void {
-        self.backend.shutdown();
+        self.backend.shutdown(&self.backend);
     }
 };
 

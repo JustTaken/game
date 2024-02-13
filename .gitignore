@@ -8,3 +8,4 @@ assets/vert.spv
 flake.lock
 flake.nix
 nix-builds/
+annotations.org
