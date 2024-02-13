@@ -77,7 +77,7 @@ pub const Backend = struct {
             return e;
         };
 
-        const buffers = BufferHandler.new(device, command_pool) catch |e| {
+        const buffers = BufferHandler.new(device, command_pool, graphics_pipeline) catch |e| {
             configuration.logger.log(.Error, "Failed to create vertex and index buffers", .{});
 
             return e;
@@ -114,7 +114,7 @@ pub const Backend = struct {
             }
         };
 
-        self.command_pool.record(self.device, self.graphics_pipeline, self.swapchain, self.buffers, image_index) catch |e| {
+        self.command_pool.record(self.device, &self.graphics_pipeline, self.swapchain, self.buffers, image_index) catch |e| {
             configuration.logger.log(.Error, "Backend failed to record command buffer", .{});
 
             return e;
