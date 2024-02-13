@@ -1,10 +1,7 @@
 zig-out/
 zig-cache/
-outputs/
 assets/frag.spv
 assets/vert.spv
 .direnv/
 .envrc
-flake.lock
-flake.nix
-nix-builds/
+annotations.org
