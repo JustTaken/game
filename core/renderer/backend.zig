@@ -7,16 +7,21 @@ const Vulkan = _wrapper.Vulkan;
 const configuration = _utility.Configuration;
 
 pub const Backend = struct {
-    // vulkan: Vulkan,
-    ptr: *anyopaque,
-    draw: *const fn (*anyopaque) anyerror!void,
-    shutdown: *const fn (*anyopaque) void,
+    vulkan: Vulkan,
+    window: *Glfw.Window,
 
-    pub const Platform = enum {
-        Linux,
-        Windows,
-        MacOs,
-    };
+    pub fn new() !Backend {
+        const vulkan = Vulkan.new() catch |e| {
+            configuration.logger.log(.Error, "Failed to creat vulkan wrapper", .{});
+
+            return e;
+        };
+
+        return .{
+            .vulkan = vulkan,
+            .window = vulkan.window.handle,
+        };
+    }
 
     // pub fn new() !Backend {
     //     return .{
@@ -24,15 +29,15 @@ pub const Backend = struct {
     //     };
     // }
 
-    // pub fn draw(self: *Backend) !void {
-    //     try self.vulkan.draw();
-    // }
+    pub fn draw(self: *Backend) !void {
+        try self.vulkan.draw();
+    }
 
-    // pub fn shutdown(self: *Backend) void {
-    //     self.vulkan.shutdown();
-    // }
+    pub fn shutdown(self: *Backend) void {
+        self.vulkan.shutdown();
+    }
 
-    // pub fn window(self: Backend) *Glfw.Window {
-    //     return self.vulkan.window.handle;
-    // }
+    pub fn window(self: Backend) *Glfw.Window {
+        return self.vulkan.window.handle;
+    }
 };

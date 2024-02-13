@@ -2187,9 +2187,7 @@ pub const Vulkan = struct {
         };
     }
 
-    pub fn draw(ptr: *anyopaque) !void {
-        const self: *Vulkan = @ptrCast(@alignCast(ptr));
-        configuration.logger.log(.Debug, "Swapchain: {?}", .{ptr});
+    pub fn draw(self: *Vulkan) !void {
         const image_index = self.swapchain.acquire_next_image(self.device, self.sync) catch |e| {
             if (Swapchain.has_to_recreate(e)) {
                 configuration.logger.log(.Debug, "Recreating swapchain", .{});
@@ -2237,8 +2235,7 @@ pub const Vulkan = struct {
         };
     }
 
-    pub fn shutdown(ptr: *anyopaque) void {
-        const self: *Vulkan = @ptrCast(@alignCast(ptr));
+    pub fn shutdown(self: *Vulkan) void {
         self.buffer_handle.destroy(self.device);
         self.sync.destroy(self.device);
         self.graphics_pipeline.destroy(self.device);
@@ -2248,14 +2245,5 @@ pub const Vulkan = struct {
         self.instance.destroy();
 
         Glfw.shutdown();
-    }
-
-    pub fn backend(self: *Vulkan) Backend {
-        // configuration.logger.log(.Debug, "first - Swapchain: {?}", .{&self});
-        return .{
-            .ptr = self,
-            .draw = draw,
-            .shutdown = shutdown,
-        };
     }
 };
