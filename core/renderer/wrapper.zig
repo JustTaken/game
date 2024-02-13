@@ -310,7 +310,6 @@ pub const Vulkan = struct {
     pub const Device = struct {
         handle: c.VkDevice,
         physical_device: c.VkPhysicalDevice,
-        memory_properties: c.VkPhysicalDeviceMemoryProperties,
         queues: [4]Queue,
 
         dispatch: Dispatch,
@@ -566,8 +565,6 @@ pub const Vulkan = struct {
                 PFN_vkGetDeviceQueue(device, queues[i].family, 0, &queues[i].handle);
             }
 
-            const memory_properties = instance.get_physical_device_memory_properties(physical_device);
-
             return .{
                 .handle = device,
                 .dispatch = .{
@@ -635,7 +632,6 @@ pub const Vulkan = struct {
                 },
                 .queues = queues,
                 .physical_device = physical_device,
-                .memory_properties = memory_properties,
             };
         }
 
@@ -1644,10 +1640,11 @@ pub const Vulkan = struct {
                 }
             };
 
-            pub fn new(device: Device, command_pool: CommandPool, descriptor_set: c.VkDescriptorSet, uniform: **Uniform) !Buffer {
+            pub fn new(device: Device, instance: Instance, command_pool: CommandPool, descriptor_set: c.VkDescriptorSet, uniform: **Uniform) !Buffer {
                 const buffer = try Buffer.new(
                     device,
                     command_pool.handle,
+                    instance.get_physical_device_memory_properties(device.physical_device),
                     c.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                     c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                     Uniform,
@@ -1685,6 +1682,7 @@ pub const Vulkan = struct {
             fn new(
                 device: Device,
                 command_pool: c.VkCommandPool,
+                memory_properties: c.VkPhysicalDeviceMemoryProperties,
                 opt_usage: ?c.VkBufferUsageFlags,
                 opt_properties: ?c.VkMemoryPropertyFlags,
                 comptime T: type,
@@ -1703,8 +1701,8 @@ pub const Vulkan = struct {
 
                 const memory_requirements = device.get_buffer_memory_requirements(buffer);
 
-                const index = blk: for (0..device.memory_properties.memoryTypeCount) |i| {
-                    if ((memory_requirements.memoryTypeBits & (@as(u32, @intCast(1)) << @as(u5, @intCast(i)))) != 0 and (device.memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
+                const index = blk: for (0..memory_properties.memoryTypeCount) |i| {
+                    if ((memory_requirements.memoryTypeBits & (@as(u32, @intCast(1)) << @as(u5, @intCast(i)))) != 0 and (memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
                         break :blk i;
                     }
                 } else {
@@ -1721,7 +1719,7 @@ pub const Vulkan = struct {
                 try device.bind_buffer_memory(buffer, memory);
 
                 if (data) |b| {
-                    const staging_buffer = try Buffer.new(device, command_pool, null, null, T, null, len);
+                    const staging_buffer = try Buffer.new(device, command_pool, memory_properties, null, null, T, null, len);
                     var dst: *T = undefined;
                     try device.map_memory(staging_buffer.memory, T, len, @ptrCast(&dst));
                     @memcpy(@as([*]T, @ptrCast(@alignCast(dst))), b);
@@ -1781,10 +1779,11 @@ pub const Vulkan = struct {
                 0, 1, 2, 2, 3, 0
             };
 
-            pub fn new(device: Device, command_pool: CommandPool) !Buffer {
+            pub fn new(device: Device, instance: Instance, command_pool: CommandPool) !Buffer {
                 return try Buffer.new(
                     device,
                     command_pool.handle,
+                    instance.get_physical_device_memory_properties(device.physical_device),
                     c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                     c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                     u16,
@@ -1840,9 +1839,11 @@ pub const Vulkan = struct {
                 },
             };
 
-            pub fn new(device: Device, command_pool: CommandPool) !Buffer {
+            pub fn new(device: Device, instance: Instance, command_pool: CommandPool) !Buffer {
                 return try Buffer.new(
-                    device, command_pool.handle,
+                    device,
+                    command_pool.handle,
+                    instance.get_physical_device_memory_properties(device.physical_device),
                     c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                     c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                     Self,
@@ -1852,12 +1853,12 @@ pub const Vulkan = struct {
             }
         };
 
-        pub fn new(device: Device, command_pool: CommandPool, graphics_pipeline: GraphicsPipeline) !BufferHandle {
+        pub fn new(device: Device, instance: Instance, command_pool: CommandPool, graphics_pipeline: GraphicsPipeline) !BufferHandle {
             var uniform_mapped: *Uniform = undefined;
             return .{
-                .vertex = try Vertex.new(device, command_pool),
-                .index = try Index.new(device, command_pool),
-                .uniform = try Uniform.new(device, command_pool, graphics_pipeline.descriptor_set, &uniform_mapped),
+                .vertex = try Vertex.new(device, instance, command_pool),
+                .index = try Index.new(device, instance, command_pool),
+                .uniform = try Uniform.new(device, instance, command_pool, graphics_pipeline.descriptor_set, &uniform_mapped),
                 .uniform_mapped = uniform_mapped,
             };
         }
@@ -2168,7 +2169,7 @@ pub const Vulkan = struct {
             return e;
         };
 
-        const buffer_handle = BufferHandle.new(device, command_pool, graphics_pipeline) catch |e| {
+        const buffer_handle = BufferHandle.new(device, instance, command_pool, graphics_pipeline) catch |e| {
             configuration.logger.log(.Error, "Failed to create vertex and index buffers", .{});
 
             return e;

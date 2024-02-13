@@ -55,7 +55,8 @@ pub const Application = struct {
     }
 
     pub fn run(self: *Application) void {
-        // const vk: *Vulkan = @ptrCast(@alignCast(self.backend.ptr));
+        const vk: *Vulkan = @ptrCast(@alignCast(self.backend.ptr));
+        _ = vk;
         configuration.logger.log(.Debug, "Swapchain: {?}", .{self.backend.ptr});
 
         while (self.event_system.state != .Closing) {
