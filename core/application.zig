@@ -3,6 +3,7 @@ const _game = @import("game.zig");
 const _event = @import("event.zig");
 const _utility = @import("utility.zig");
 const _renderer = @import("renderer/backend.zig");
+const _wrapper = @import("renderer/wrapper.zig");
 
 const Game = _game.Game;
 const State = _utility.State;
@@ -41,7 +42,8 @@ pub const Application = struct {
             unreachable;
         };
 
-        return .{
+
+       return .{
             .game = game,
             .backend = backend,
             .event_system = event_system,
@@ -58,7 +60,7 @@ pub const Application = struct {
                 };
 
                 self.game.update();
-                self.event_system.input(self.backend.window.handle);
+                self.event_system.input(self.backend.window);
             }
         }
 

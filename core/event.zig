@@ -83,13 +83,12 @@ pub const EventSystem = struct {
         Glfw.poll_events();
 
         const current_time = Glfw.get_time();
-        // const delta = current_time - self.clock;
 
         self.clock = current_time;
-        // logger.log(.Debug, "Total time to create vulkan renderer backend: {} seconds", .{delta});
 
         if (Glfw.window_should_close(window)) {
             self.state = .Closing;
+            logger.log(.Debug, "Total time to passed in the game {} seconds", .{self.clock});
         }
 
         for (keys) |key| {
