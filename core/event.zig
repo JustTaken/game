@@ -1,10 +1,12 @@
 const std = @import("std");
-const _utility = @import("utility.zig");
+
+const _config = @import("util/configuration.zig");
 const _wrapper = @import("renderer/wrapper.zig");
 
 const Glfw = _wrapper.Glfw;
-const logger = _utility.Configuration.logger;
-const State = _utility.State;
+const State = _config.State;
+
+const logger = _config.Configuration.logger;
 
 pub const EventSystem = struct {
     events: [@intCast(@intFromEnum(Event.Type.Max))]Event,
@@ -17,11 +19,18 @@ pub const EventSystem = struct {
         typ: Type,
 
         pub const Handler = struct {
+            working: bool = false,
             ptr: *anyopaque,
             listen_fn: *const fn (*anyopaque, Argument) bool,
 
-            fn listen(self: Handler, argument: Argument) bool {
+            fn listen(self: *Handler, argument: Argument) bool {
+                self.working = true;
+                defer self.working = false;
                 return self.listen_fn(self.ptr, argument);
+            }
+
+            inline fn shutdown(self: Handler) void {
+                while (self.working) {}
             }
         };
 
@@ -39,6 +48,19 @@ pub const EventSystem = struct {
             self.allocator.realoc(self.handlers, self.handlers.len + 1);
             self.handlers[self.handlers.len] = handler;
         }
+
+        fn shutdown(self: Event) void {
+            for (self.handlers) |handler| {
+                handler.shutdown();
+            }
+        }
+
+        fn listen(self: *Event, argument: Argument) void {
+            for (0..self.handlers.len) |i| {
+                if(self.handlers[i].listen(argument)) break;
+            }
+        }
+
     };
 
     pub const Argument = union {
@@ -88,7 +110,7 @@ pub const EventSystem = struct {
 
         if (Glfw.window_should_close(window)) {
             self.state = .Closing;
-            logger.log(.Debug, "Total time to passed in the game {} seconds", .{self.clock});
+            logger.log(.Debug, "Total time passed inside the game {} seconds", .{self.clock});
         }
 
         for (keys) |key| {
@@ -100,7 +122,7 @@ pub const EventSystem = struct {
         }
     }
 
-    fn fire(self: EventSystem, event_type: Event.Type, argument: Argument) !void {
+    fn fire(self: *EventSystem, event_type: Event.Type, argument: Argument) !void {
         const code = @intFromEnum(event_type);
 
         if (self.events.len <= code) {
@@ -109,8 +131,13 @@ pub const EventSystem = struct {
             return error.EventNotFound;
         }
 
-        for (self.events[code].handlers) |handler| {
-            if(handler.listen(argument)) break;
+        self.events[code].listen(argument);
+    }
+
+    pub fn shutdown(self: EventSystem) void {
+        for (self.events) |event| {
+            event.shutdown();
         }
     }
+
 };

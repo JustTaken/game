@@ -1,15 +1,18 @@
 const std = @import("std");
+
 const _game = @import("game.zig");
 const _event = @import("event.zig");
-const _utility = @import("utility.zig");
+const _config = @import("util/configuration.zig");
 const _renderer = @import("renderer/backend.zig");
 const _wrapper = @import("renderer/wrapper.zig");
+const _math = @import("util/math.zig");
 
 const Game = _game.Game;
-const State = _utility.State;
+const State = _config.State;
 const Backend = _renderer.Backend;
 const EventSystem = _event.EventSystem;
-const configuration = _utility.Configuration;
+const configuration = _config.Configuration;
+const Vec = _math.Vec;
 
 pub const Application = struct {
     game: Game,
@@ -60,7 +63,7 @@ pub const Application = struct {
                 };
 
                 self.game.update();
-                self.event_system.input(self.backend.window);
+                self.event_system.input(self.backend.get_window());
             }
         }
 
@@ -69,21 +72,5 @@ pub const Application = struct {
 
     pub fn shutdown(self: *Application) void {
         self.backend.shutdown();
-    }
-};
-
-pub const Test = struct {
-    const Self = @This();
-    pub fn listen(ptr: *anyopaque, code: u8) void {
-        const self: *Self = @ptrCast(@alignCast(ptr));
-        _ = self;
-        _ = code;
-    }
-
-    fn handle(self: *Self) EventSystem.Event.Handle {
-        return .{
-            .ptr = self,
-            .listen_fn = listen,
-        };
     }
 };

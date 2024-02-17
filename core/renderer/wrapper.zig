@@ -1,14 +1,19 @@
 const std = @import("std");
-const _utility = @import("../utility.zig");
 const Backend = @import("backend.zig").Backend;
+const _config = @import("../util/configuration.zig");
+const _io = @import("../util/io.zig");
+const _math = @import("../util/math.zig");
 
 pub const c = @cImport({
     @cInclude("vulkan/vulkan.h");
     @cInclude("GLFW/glfw3.h");
 });
 
-const configuration = _utility.Configuration;
-const Io = _utility.Io;
+const configuration = _config.Configuration;
+const logger = configuration.logger;
+const Io = _io.Io;
+const Obj = _io.Obj;
+const Vec = _math.Vec;
 
 var SNAP_ARENA = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 const SNAP_ALLOCATOR = SNAP_ARENA.allocator();
@@ -23,13 +28,13 @@ pub const Glfw = struct {
 
     pub fn init() !void {
         if (c.glfwInit() != c.GLFW_TRUE) {
-            configuration.logger.log(.Error, "Glfw failed to initialize", .{});
+            logger.log(.Error, "Glfw failed to initialize", .{});
 
             return error.GlfwInit;
         }
 
         if (c.glfwVulkanSupported() != c.GLFW_TRUE) {
-            configuration.logger.log(.Error, "Vulkan lib not found", .{});
+            logger.log(.Error, "Vulkan lib not found", .{});
 
             return error.VulkanInit;
         }
@@ -136,7 +141,7 @@ pub const Vulkan = struct {
             var instance: c.VkInstance = undefined;
             const PFN_vkCreateInstance = @as(c.PFN_vkCreateInstance, @ptrCast(c.glfwGetInstanceProcAddress(null, "vkCreateInstance"))) orelse return error.FunctionNotFound;
             const extensions = Glfw.get_required_instance_extensions(allocator) catch |e| {
-                configuration.logger.log(.Error, "No window extension list was provided by the platform", .{});
+                logger.log(.Error, "No window extension list was provided by the platform", .{});
 
                 return e;
             };
@@ -198,7 +203,7 @@ pub const Vulkan = struct {
 
             try check(self.dispatch.enumerate_physical_devices(self.handle, &count, null));
             const physical_devices = allocator.alloc(c.VkPhysicalDevice, count) catch {
-                configuration.logger.log(.Error, "Out of memory", .{});
+                logger.log(.Error, "Out of memory", .{});
 
                 return error.OutOfMemory;
             };
@@ -212,7 +217,7 @@ pub const Vulkan = struct {
 
             try check(self.dispatch.enumerate_device_extension_properties(physical_device, null, &count, null));
             const extension_properties = allocator.alloc(c.VkExtensionProperties, count) catch {
-                configuration.logger.log(.Error, "Out of memory", .{});
+                logger.log(.Error, "Out of memory", .{});
 
                 return error.OutOfMemory;
             };
@@ -246,7 +251,7 @@ pub const Vulkan = struct {
             var count: u32 = undefined;
             try check(self.dispatch.get_physical_device_surface_formats(physical_device, surface, &count, null));
             const formats = allocator.alloc(c.VkSurfaceFormatKHR, count) catch {
-                configuration.logger.log(.Error, "Out of memory", .{});
+                logger.log(.Error, "Out of memory", .{});
 
                 return error.OutOfMemory;
             };
@@ -259,7 +264,7 @@ pub const Vulkan = struct {
             var count: u32 = undefined;
             try check(self.dispatch.get_physical_device_surface_present_modes(physical_device, surface, &count, null));
             const present_modes = allocator.alloc(c.VkPresentModeKHR, count) catch {
-                configuration.logger.log(.Error, "Out of memory", .{});
+                logger.log(.Error, "Out of memory", .{});
 
                 return error.OutOfMemory;
             };
@@ -272,7 +277,7 @@ pub const Vulkan = struct {
             var count: u32 = undefined;
             self.dispatch.get_physical_device_queue_family_properties(physical_device, &count, null);
             const properties = allocator.alloc(c.VkQueueFamilyProperties, count) catch {
-                configuration.logger.log(.Error, "Out of memory", .{});
+                logger.log(.Error, "Out of memory", .{});
                 return error.OutOfMemory;
             };
             self.dispatch.get_physical_device_queue_family_properties(physical_device, &count, properties.ptr);
@@ -320,14 +325,14 @@ pub const Vulkan = struct {
 
             fn uniques(queues: []const u32, allocator: std.mem.Allocator) !std.ArrayList(u32) {
                 var uniques_array = std.ArrayList(u32).initCapacity(allocator, 1) catch |e| {
-                    configuration.logger.log(.Error, "Out of memory", .{});
+                    logger.log(.Error, "Out of memory", .{});
 
                     return e;
                 };
 
                 const first = [_]u32 {queues[0]};
                 uniques_array.appendSlice(&first) catch |e| {
-                    configuration.logger.log(.Error, "Out of memory", .{});
+                    logger.log(.Error, "Out of memory", .{});
 
                     return e;
                 };
@@ -339,7 +344,7 @@ pub const Vulkan = struct {
                         if (family == uniques_array.items[i]) break;
                     } else {
                         uniques_array.append(family) catch |e| {
-                            configuration.logger.log(.Error, "Failed to add member to uniques queue family index list", .{});
+                            logger.log(.Error, "Failed to add member to uniques queue family index list", .{});
 
                             return e;
                         };
@@ -430,7 +435,7 @@ pub const Vulkan = struct {
             var queue_families: [4]u32 = undefined;
             const physical_device = blk: {
                 const physical_devices = instance.enumerate_physical_devices(allocator) catch |e| {
-                    configuration.logger.log(.Error, "Failed to list physical devices", .{});
+                    logger.log(.Error, "Failed to list physical devices", .{});
 
                     return e;
                 };
@@ -442,7 +447,7 @@ pub const Vulkan = struct {
                 var families: [4]?u32 = .{null, null, null, null};
                 const rating: u32 = rate: {
                     const extensions_properties = instance.enumerate_device_extension_properties(physical_device, allocator) catch {
-                        configuration.logger.log(.Warn, "Could not get properties of one physical device, skipping", .{});
+                        logger.log(.Warn, "Could not get properties of one physical device, skipping", .{});
 
                         break :rate 0;
                     };
@@ -459,7 +464,7 @@ pub const Vulkan = struct {
                     if (!((instance.get_physical_device_surface_present_modes(physical_device, surface, allocator) catch break :rate 0).len > 0)) break :rate 0;
 
                     const families_properties = instance.get_physical_device_queue_family_properties(physical_device, allocator) catch |e| {
-                        configuration.logger.log(.Error, "Failed to get queue family properties", .{});
+                        logger.log(.Error, "Failed to get queue family properties", .{});
                         return e;
                     };
 
@@ -508,7 +513,7 @@ pub const Vulkan = struct {
             if (p_device) |physical_device| {
                     break :blk physical_device;
                 } else {
-                    configuration.logger.log(.Error, "Failed to find suitable GPU", .{});
+                    logger.log(.Error, "Failed to find suitable GPU", .{});
 
                     return error.PhysicalDeviceNotFount;
                 }
@@ -516,13 +521,13 @@ pub const Vulkan = struct {
 
             const priority: [1]f32 = .{1};
             const families = Queue.uniques(&queue_families, allocator) catch |e| {
-                configuration.logger.log(.Error, "Could not get uniques queue family index for the selecter physical device", .{});
+                logger.log(.Error, "Could not get uniques queue family index for the selecter physical device", .{});
 
                 return e;
             };
 
             var queue_create_infos: []c.VkDeviceQueueCreateInfo = allocator.alloc(c.VkDeviceQueueCreateInfo, families.items.len) catch |e| {
-                configuration.logger.log(.Error, "Out of memory", .{});
+                logger.log(.Error, "Out of memory", .{});
 
                 return e;
             };
@@ -546,7 +551,7 @@ pub const Vulkan = struct {
                     .ppEnabledExtensionNames = &REQUIRED_DEVICE_EXTENSIONS[0],
                 },
             ) catch |e| {
-                configuration.logger.log(.Error, "Failed to create logical device handle", .{});
+                logger.log(.Error, "Failed to create logical device handle", .{});
 
                 return e;
             };
@@ -647,7 +652,7 @@ pub const Vulkan = struct {
 
             try check(self.dispatch.get_swapchain_images(self.handle, swapchain, &count, null));
             const images = allocator.alloc(c.VkImage, count) catch {
-                configuration.logger.log(.Error, "Out of memory", .{});
+                logger.log(.Error, "Out of memory", .{});
 
                 return error.OutOfMemory;
             };
@@ -758,7 +763,7 @@ pub const Vulkan = struct {
             return desc;
         }
 
-        pub fn map_memory(self: Device, memory: c.VkDeviceMemory, comptime T: type, len: u32, dst: *?*anyopaque) !void {
+        pub fn map_memory(self: Device, memory: c.VkDeviceMemory, comptime T: type, len: usize, dst: *?*anyopaque) !void {
             try check(self.dispatch.map_memory(self.handle, memory, 0, len * @sizeOf(T), 0, dst));
         }
 
@@ -956,7 +961,7 @@ pub const Vulkan = struct {
             const allocator = arena.allocator();
 
             const formats = instance.get_physical_device_surface_formats(device.physical_device, window.surface, allocator) catch |e| {
-                configuration.logger.log(.Error, "Failed to list surface formats", .{});
+                logger.log(.Error, "Failed to list surface formats", .{});
 
                 return e;
             };
@@ -966,7 +971,7 @@ pub const Vulkan = struct {
                     break :blk format;
                 }
             } else {
-                configuration.logger.log(.Warn, "Could not find a good surface format falling back to first in list", .{});
+                logger.log(.Warn, "Could not find a good surface format falling back to first in list", .{});
 
                 break :blk formats[0];
             };
@@ -974,7 +979,7 @@ pub const Vulkan = struct {
             const present_mode = c.VK_PRESENT_MODE_FIFO_KHR;
 
             const capabilities = instance.get_physical_device_surface_capabilities(device.physical_device, window.surface) catch |e| {
-                configuration.logger.log(.Error, "Could not access physical device capabilities", .{});
+                logger.log(.Error, "Could not access physical device capabilities", .{});
 
                 return e;
             };
@@ -1003,7 +1008,7 @@ pub const Vulkan = struct {
                 device.queues[0].family,
                 device.queues[1].family,
             }, allocator) catch |e| {
-                configuration.logger.log(.Error, "Failed to get uniques queue family index list", .{});
+                logger.log(.Error, "Failed to get uniques queue family index list", .{});
 
                 return e;
             };
@@ -1029,13 +1034,13 @@ pub const Vulkan = struct {
                 }, null, &handle));
 
             const images = device.get_swapchain_images(handle, allocator) catch |e| {
-                configuration.logger.log(.Error, "Failed to get swapchain images", .{});
+                logger.log(.Error, "Failed to get swapchain images", .{});
 
                 return e;
             };
 
             const image_views = allocator.alloc(c.VkImageView, images.len) catch |e| {
-                configuration.logger.log(.Error, "Out of memory", .{});
+                logger.log(.Error, "Out of memory", .{});
 
                 return e;
             };
@@ -1060,7 +1065,7 @@ pub const Vulkan = struct {
                         .a = c.VK_COMPONENT_SWIZZLE_IDENTITY,
                     },
                 }) catch |e| {
-                    configuration.logger.log(.Error, "Failed to get image view from image", .{});
+                    logger.log(.Error, "Failed to get image view from image", .{});
 
                     return e;
                 };
@@ -1079,7 +1084,7 @@ pub const Vulkan = struct {
                     break :blk candidate;
                 }
             } else {
-                configuration.logger.log(.Error, "Failed to find suitable depth format", .{});
+                logger.log(.Error, "Failed to find suitable depth format", .{});
 
                 return error.DepthFormat;
             };
@@ -1099,19 +1104,27 @@ pub const Vulkan = struct {
             return (e == VkResult.SuboptimalKhr or e == VkResult.OutOfDateKhr);
         }
 
-        pub fn recreate(self: *Swapchain, device: Device, instance: Instance, pipeline: GraphicsPipeline, window: Window) !void {
+        pub fn recreate(self: *Swapchain, device: Device, instance: Instance, pipeline: GraphicsPipeline, window: *Window) !void {
             while (true) {
-                var extent = Glfw.get_framebuffer_size(window.handle);
+                const extent = Glfw.get_framebuffer_size(window.handle);
+
                 if (extent.width == 0 or extent.height == 0) {
                     Glfw.wait_events();
-                    extent = Glfw.get_framebuffer_size(window.handle);
-                } else {
+                } else if (extent.width != window.width or extent.height != window.height) {
+                    window.width = extent.width;
+                    window.height = extent.height;
+                    window.last_resize = Glfw.get_time();
+                } else if ((Glfw.get_time() - window.last_resize) >= 1) {
                     break;
                 }
+
+                std.time.sleep(501000);
             }
 
+            logger.log(.Debug, "Recreating swapchain", .{});
+
             self.destroy(device);
-            const new_swapchain = try Swapchain.new(device, instance, window, self.arena);
+            const new_swapchain = try Swapchain.new(device, instance, window.*, self.arena);
             const allocator = self.arena.allocator();
 
             self.handle = new_swapchain.handle;
@@ -1131,7 +1144,7 @@ pub const Vulkan = struct {
                     .height = new_swapchain.extent.height,
                     .layers = 1,
                 }) catch |e| {
-                    configuration.logger.log(.Error, "Failed to crate frambuffer", .{});
+                    logger.log(.Error, "Failed to crate frambuffer", .{});
 
                     return e;
                 };
@@ -1175,17 +1188,18 @@ pub const Vulkan = struct {
     pub const Window = struct {
         handle: *Glfw.Window,
         surface: c.VkSurfaceKHR,
+        last_resize: f64,
         width: u32,
         height: u32,
 
         pub fn new(instance: Instance, width: u32, height: u32) !Window {
             const handle = Glfw.create_window(width, height, &configuration.application_name[0]) catch |e| {
-                configuration.logger.log(.Error, "Glfw failed to create window", .{});
+                logger.log(.Error, "Glfw failed to create window", .{});
 
                 return e;
             };
             const surface = Glfw.create_window_surface(instance, handle, null) catch |e| {
-                configuration.logger.log(.Error, "Failed to create window surface", .{});
+                logger.log(.Error, "Failed to create window surface", .{});
 
                 return e;
             };
@@ -1195,11 +1209,12 @@ pub const Vulkan = struct {
                 .surface = surface,
                 .width = width,
                 .height = height,
+                .last_resize = Glfw.get_time(),
             };
         }
 
         pub fn destroy(self: Window, instance: Instance) void {
-            configuration.logger.log(.Info, "Closing window", .{});
+            logger.log(.Info, "Closing window", .{});
             instance.destroy_surface(self.surface);
             Glfw.destroy_window(self.handle);
         }
@@ -1215,13 +1230,13 @@ pub const Vulkan = struct {
 
         pub fn new(device: Device, swapchain: Swapchain, allocator: std.mem.Allocator) !GraphicsPipeline {
             const vert_code = Io.read_file("assets/vert.spv", allocator) catch |e| {
-                configuration.logger.log(.Error, "Could not read vertex shader byte code", .{});
+                logger.log(.Error, "Could not read vertex shader byte code", .{});
 
                 return e;
             };
 
             const frag_code = Io.read_file("assets/frag.spv", allocator) catch |e| {
-                configuration.logger.log(.Error, "Could not read fragment shader byte code", .{});
+                logger.log(.Error, "Could not read fragment shader byte code", .{});
 
                 return e;
             };
@@ -1231,7 +1246,7 @@ pub const Vulkan = struct {
                 .codeSize = vert_code.len,
                 .pCode = @as([*c]const u32, @ptrCast(@alignCast(vert_code))),
             }) catch |e| {
-                configuration.logger.log(.Error, "Failed to create vertex shader module", .{});
+                logger.log(.Error, "Failed to create vertex shader module", .{});
 
                 return e;
             };
@@ -1243,7 +1258,7 @@ pub const Vulkan = struct {
                 .codeSize = frag_code.len,
                 .pCode = @as([*c]const u32, @ptrCast(@alignCast(frag_code))),
             }) catch |e| {
-                configuration.logger.log(.Error, "Failed to create fragment shader module", .{});
+                logger.log(.Error, "Failed to create fragment shader module", .{});
 
                 return e;
             };
@@ -1310,7 +1325,7 @@ pub const Vulkan = struct {
                 .polygonMode = c.VK_POLYGON_MODE_FILL,
                 .lineWidth = 1.0,
                 .cullMode = c.VK_CULL_MODE_BACK_BIT,
-                .frontFace = c.VK_FRONT_FACE_CLOCKWISE,
+                .frontFace = c.VK_FRONT_FACE_COUNTER_CLOCKWISE,
                 .depthBiasEnable = c.VK_FALSE,
                 .depthBiasConstantFactor = 0.0,
                 .depthBiasClamp = 0.0,
@@ -1355,7 +1370,7 @@ pub const Vulkan = struct {
                     .pImmutableSamplers = null,
                 },
             }) catch |e| {
-                configuration.logger.log(.Error, "Failed to create descriptor set layout", .{});
+                logger.log(.Error, "Failed to create descriptor set layout", .{});
 
                 return e;
             };
@@ -1376,7 +1391,7 @@ pub const Vulkan = struct {
                 .descriptorSetCount = 1,
                 .pSetLayouts = &descriptor_set_layout,
             }) catch |e| {
-                configuration.logger.log(.Error, "Failed to create descriptor set", .{});
+                logger.log(.Error, "Failed to create descriptor set", .{});
 
                 return e;
             };
@@ -1388,7 +1403,7 @@ pub const Vulkan = struct {
                 .pushConstantRangeCount = 0,
                 .pPushConstantRanges = null,
             }) catch |e| {
-                configuration.logger.log(.Error, "Failed to create pipeline layout", .{});
+                logger.log(.Error, "Failed to create pipeline layout", .{});
 
                 return e;
             };
@@ -1425,7 +1440,7 @@ pub const Vulkan = struct {
                     .dstAccessMask = c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                 },
             }) catch |e| {
-                configuration.logger.log(.Error, "Failed to create render pass", .{});
+                logger.log(.Error, "Failed to create render pass", .{});
 
                 return e;
             };
@@ -1447,7 +1462,7 @@ pub const Vulkan = struct {
                     .basePipelineHandle = null,
                     .pDepthStencilState = null,
                 }) catch |e| {
-                    configuration.logger.log(.Error, "Failed to create graphics pipeline", .{});
+                    logger.log(.Error, "Failed to create graphics pipeline", .{});
 
                     return e;
             };
@@ -1462,7 +1477,7 @@ pub const Vulkan = struct {
                     .height = swapchain.extent.height,
                     .layers = 1,
                 }) catch |e| {
-                    configuration.logger.log(.Error, "Failed to crate frambuffer", .{});
+                    logger.log(.Error, "Failed to crate frambuffer", .{});
 
                     return e;
                 };
@@ -1531,7 +1546,7 @@ pub const Vulkan = struct {
             device.cmd_draw_indexed(self.buffer, BufferHandle.Index.default.len);
             device.end_render_pass(self.buffer);
             device.end_command_buffer(self.buffer) catch {
-                configuration.logger.log(.Warn, "Failed to end command buffer", .{});
+                logger.log(.Warn, "Failed to end command buffer", .{});
             };
         }
 
@@ -1541,7 +1556,7 @@ pub const Vulkan = struct {
                 .flags = c.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
                 .queueFamilyIndex = device.queues[0].family,
             }) catch |e| {
-                configuration.logger.log(.Error, "Failed to create command pool", .{});
+                logger.log(.Error, "Failed to create command pool", .{});
 
                 return e;
             };
@@ -1552,7 +1567,7 @@ pub const Vulkan = struct {
                 .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
                 .commandBufferCount = 1,
             }) catch |e| {
-                configuration.logger.log(.Error, "Failed to allocate command buffer", .{});
+                logger.log(.Error, "Failed to allocate command buffer", .{});
 
                 return e;
             };
@@ -1620,9 +1635,9 @@ pub const Vulkan = struct {
             const default: []const Uniform = &[_]Uniform {
                 Uniform {
                     .model = .{
-                        .{1, 0, 0, 0},
-                        .{0, 1, 0, 0},
-                        .{0, 0, 1, 0},
+                        .{0.5, 0, 0, 0},
+                        .{0, 0.5, 0, 0},
+                        .{0, 0, 0.5, 0},
                         .{0, 0, 0, 1},
                     },
                     .view = .{
@@ -1687,7 +1702,7 @@ pub const Vulkan = struct {
                 opt_properties: ?c.VkMemoryPropertyFlags,
                 comptime T: type,
                 data: ?[]const T,
-                len: u32,
+                len: usize,
             ) !Buffer {
                 const usage = opt_usage orelse c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
                 const properties = opt_properties orelse c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
@@ -1706,7 +1721,7 @@ pub const Vulkan = struct {
                         break :blk i;
                     }
                 } else {
-                    configuration.logger.log(.Error, "Could not find memory type that suit the need of buffer allocation", .{});
+                    logger.log(.Error, "Could not find memory type that suit the need of buffer allocation", .{});
                     return error.NoMemoryRequirementsPassed;
                 };
 
@@ -1731,7 +1746,7 @@ pub const Vulkan = struct {
                         .commandPool = command_pool,
                         .commandBufferCount = 1,
                     }) catch |e| {
-                        configuration.logger.log(.Error, "Failed to allocate command buffer", .{});
+                        logger.log(.Error, "Failed to allocate command buffer", .{});
 
                         return e;
                     };
@@ -1779,16 +1794,17 @@ pub const Vulkan = struct {
                 0, 1, 2, 2, 3, 0
             };
 
-            pub fn new(device: Device, instance: Instance, command_pool: CommandPool) !Buffer {
+            pub fn new(device: Device, instance: Instance, command_pool: CommandPool, vec: []const u16) !Buffer {
+                logger.log(.Debug, "{any}", .{vec});
                 return try Buffer.new(
                     device,
                     command_pool.handle,
                     instance.get_physical_device_memory_properties(device.physical_device),
                     c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                     c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                    u16,
-                    &default,
-                    default.len
+                    @TypeOf(vec[0]),
+                    vec,
+                    vec.len
                 );
             }
         };
@@ -1839,7 +1855,16 @@ pub const Vulkan = struct {
                 },
             };
 
-            pub fn new(device: Device, instance: Instance, command_pool: CommandPool) !Buffer {
+            pub fn new(device: Device, instance: Instance, command_pool: CommandPool, vec: []const Vec) !Buffer {
+                var items = try SNAP_ALLOCATOR.alloc(Self, vec.len);
+                for (0..vec.len) |i| {
+                    logger.log(.Debug, "{any}", .{vec[i]});
+                    items[i] = .{
+                        .position = .{vec[i].x, vec[i].z},
+                        .color = .{1.0, 1.0, 1.0},
+                    };
+                }
+
                 return try Buffer.new(
                     device,
                     command_pool.handle,
@@ -1847,17 +1872,24 @@ pub const Vulkan = struct {
                     c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                     c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                     Self,
-                    &default,
-                    default.len
+                    items,
+                    items.len
                 );
             }
         };
 
-        pub fn new(device: Device, instance: Instance, command_pool: CommandPool, graphics_pipeline: GraphicsPipeline) !BufferHandle {
+        pub fn new(
+            device: Device,
+            instance: Instance,
+            command_pool: CommandPool,
+            graphics_pipeline: GraphicsPipeline
+        ) !BufferHandle {
             var uniform_mapped: *Uniform = undefined;
+            const obj = try Obj.new("assets/plane.obj", SNAP_ALLOCATOR);
+
             return .{
-                .vertex = try Vertex.new(device, instance, command_pool),
-                .index = try Index.new(device, instance, command_pool),
+                .vertex = try Vertex.new(device, instance, command_pool, obj.vertex.items),
+                .index = try Index.new(device, instance, command_pool, obj.index.items),
                 .uniform = try Uniform.new(device, instance, command_pool, graphics_pipeline.descriptor_set, &uniform_mapped),
                 .uniform_mapped = uniform_mapped,
             };
@@ -1924,191 +1956,191 @@ pub const Vulkan = struct {
         switch (result) {
             c.VK_SUCCESS => return,
             c.VK_NOT_READY => {
-                configuration.logger.log(.Debug, "Result failed with VkResult: 'NotReady", .{});
+                logger.log(.Debug, "Result failed with VkResult: 'NotReady", .{});
                 return VkResult.NotReady;
             },
             c.VK_TIMEOUT => {
-                configuration.logger.log(.Debug, "Result failed with VkResult: 'Timeout", .{});
+                logger.log(.Debug, "Result failed with VkResult: 'Timeout", .{});
                 return VkResult.Timeout;
             },
             c.VK_EVENT_SET => {
-                configuration.logger.log(.Debug, "Result failed with VkResult: 'EventSet", .{});
+                logger.log(.Debug, "Result failed with VkResult: 'EventSet", .{});
                 return VkResult.EventSet;
             },
             c.VK_EVENT_RESET => {
-                configuration.logger.log(.Debug, "Result failed with VkResult: 'EventReset", .{});
+                logger.log(.Debug, "Result failed with VkResult: 'EventReset", .{});
                 return VkResult.EventReset;
             },
             c.VK_INCOMPLETE =>{
-                configuration.logger.log(.Debug, "Result failed with VkResult: Incomplete", .{});
+                logger.log(.Debug, "Result failed with VkResult: Incomplete", .{});
             },
             c.VK_ERROR_OUT_OF_HOST_MEMORY => {
-                configuration.logger.log(.Debug, "Result failed with 'OutOfHostMemory", .{});
+                logger.log(.Debug, "Result failed with 'OutOfHostMemory", .{});
                 return VkResult.OutOfHostMemory;
             },
             c.VK_ERROR_OUT_OF_DEVICE_MEMORY => {
-                configuration.logger.log(.Debug, "Result failed with VkResult: 'OutOfDeviceMemory'", .{});
+                logger.log(.Debug, "Result failed with VkResult: 'OutOfDeviceMemory'", .{});
                 return VkResult.OutOfDeviceMemory;
             },
             c.VK_ERROR_INITIALIZATION_FAILED => {
-                configuration.logger.log(.Debug, "Result failed with VkResult: 'InitializationFailed'", .{});
+                logger.log(.Debug, "Result failed with VkResult: 'InitializationFailed'", .{});
                 return VkResult.InitializationFailed;
             },
             c.VK_ERROR_DEVICE_LOST => {
-                configuration.logger.log(.Debug, "Result failed with VkResult: 'DeviceLost'", .{});
+                logger.log(.Debug, "Result failed with VkResult: 'DeviceLost'", .{});
                 return VkResult.DeviceLost;
             },
             c.VK_ERROR_MEMORY_MAP_FAILED => {
-                configuration.logger.log(.Debug, "Result was not a success: 'MemoryMapFailed'", .{});
+                logger.log(.Debug, "Result was not a success: 'MemoryMapFailed'", .{});
                 return VkResult.MemoryMapFailed;
             },
             c.VK_ERROR_LAYER_NOT_PRESENT => {
-                configuration.logger.log(.Debug, "Result was not a success: 'LayerNotPresent'", .{});
+                logger.log(.Debug, "Result was not a success: 'LayerNotPresent'", .{});
                 return VkResult.LayerNotPresent;
             },
             c.VK_ERROR_EXTENSION_NOT_PRESENT => {
-                configuration.logger.log(.Debug, "Result was not a success: 'ExtensionNotPresent'", .{});
+                logger.log(.Debug, "Result was not a success: 'ExtensionNotPresent'", .{});
                 return VkResult.ExtensionNotPresent;
             },
             c.VK_ERROR_FEATURE_NOT_PRESENT => {
-                configuration.logger.log(.Debug, "Result was not a success: 'FeatureNotPresent'", .{});
+                logger.log(.Debug, "Result was not a success: 'FeatureNotPresent'", .{});
                 return VkResult.FeatureNotPresent;
             },
             c.VK_ERROR_INCOMPATIBLE_DRIVER => {
-                configuration.logger.log(.Debug, "Result was not a success: 'IncompatibleDriver'", .{});
+                logger.log(.Debug, "Result was not a success: 'IncompatibleDriver'", .{});
                 return VkResult.IncompatibleDriver;
             },
             c.VK_ERROR_TOO_MANY_OBJECTS => {
-                configuration.logger.log(.Debug, "Result was not a success: 'TooManyObjects'", .{});
+                logger.log(.Debug, "Result was not a success: 'TooManyObjects'", .{});
                 return VkResult.TooManyObjects;
             },
             c.VK_ERROR_FORMAT_NOT_SUPPORTED => {
-                configuration.logger.log(.Debug, "Result was not a success: 'FormatNotSupported'", .{});
+                logger.log(.Debug, "Result was not a success: 'FormatNotSupported'", .{});
                 return VkResult.FormatNotSupported;
             },
             c.VK_ERROR_FRAGMENTED_POOL => {
-                configuration.logger.log(.Debug, "Result was not a success: 'FragmentedPool'", .{});
+                logger.log(.Debug, "Result was not a success: 'FragmentedPool'", .{});
                 return VkResult.FragmentedPool;
             },
             c.VK_ERROR_UNKNOWN => {
-                configuration.logger.log(.Debug, "Result was not a success: 'Unknown'", .{});
+                logger.log(.Debug, "Result was not a success: 'Unknown'", .{});
                 return VkResult.Unknown;
             },
             c.VK_ERROR_INVALID_EXTERNAL_HANDLE => {
-                configuration.logger.log(.Debug, "Result was not a success: 'InvalidExternalHandle'", .{});
+                logger.log(.Debug, "Result was not a success: 'InvalidExternalHandle'", .{});
                 return VkResult.InvalidExternalHandle;
             },
             c.VK_ERROR_FRAGMENTATION => {
-                configuration.logger.log(.Debug, "Result was not a success: 'Fragmentation'", .{});
+                logger.log(.Debug, "Result was not a success: 'Fragmentation'", .{});
                 return VkResult.Fragmentation;
             },
             c.VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS => {
-                configuration.logger.log(.Debug, "Result was not a success: 'InvalidOpaqueCaptureAddress'", .{});
+                logger.log(.Debug, "Result was not a success: 'InvalidOpaqueCaptureAddress'", .{});
                 return VkResult.InvalidOpaqueCaptureAddress;
             },
             c.VK_PIPELINE_COMPILE_REQUIRED => {
-                configuration.logger.log(.Debug, "Result was not a success: 'PipelineCompileRequired'", .{});
+                logger.log(.Debug, "Result was not a success: 'PipelineCompileRequired'", .{});
                 return VkResult.PipelineCompileRequired;
             },
             c.VK_ERROR_SURFACE_LOST_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'SurfaceLostKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'SurfaceLostKhr'", .{});
                 return VkResult.SurfaceLostKhr;
             },
             c.VK_ERROR_NATIVE_WINDOW_IN_USE_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'NativeWindowInUseKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'NativeWindowInUseKhr'", .{});
                 return VkResult.NativeWindowInUseKhr;
             },
             c.VK_SUBOPTIMAL_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'SuboptimalKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'SuboptimalKhr'", .{});
                 return VkResult.SuboptimalKhr;
             },
             c.VK_ERROR_OUT_OF_DATE_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'OutOfDateKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'OutOfDateKhr'", .{});
                 return VkResult.OutOfDateKhr;
             },
             c.VK_ERROR_INCOMPATIBLE_DISPLAY_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'IncompatibleDisplayKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'IncompatibleDisplayKhr'", .{});
                 return VkResult.IncompatibleDisplayKhr;
             },
             c.VK_ERROR_VALIDATION_FAILED_EXT => {
-                configuration.logger.log(.Debug, "Result was not a success: 'ValidationFailedExt'", .{});
+                logger.log(.Debug, "Result was not a success: 'ValidationFailedExt'", .{});
                 return VkResult.ValidationFailedExt;
             },
             c.VK_ERROR_INVALID_SHADER_NV => {
-                configuration.logger.log(.Debug, "Result was not a success: 'InvalidShaderNv'", .{});
+                logger.log(.Debug, "Result was not a success: 'InvalidShaderNv'", .{});
                 return VkResult.InvalidShaderNv;
             },
             c.VK_ERROR_IMAGE_USAGE_NOT_SUPPORTED_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'ImageUsageNotSupportedKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'ImageUsageNotSupportedKhr'", .{});
                 return VkResult.ImageUsageNotSupportedKhr;
             },
             c.VK_ERROR_VIDEO_PICTURE_LAYOUT_NOT_SUPPORTED_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'VideoPictureLayoutNotSupportedKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'VideoPictureLayoutNotSupportedKhr'", .{});
                 return VkResult.VideoPictureLayoutNotSupportedKhr;
             },
             c.VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'VideoProfileOperationNotSupportedKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'VideoProfileOperationNotSupportedKhr'", .{});
                 return VkResult.VideoProfileOperationNotSupportedKhr;
             },
             c.VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'VideoProfileFormatNotSupportedKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'VideoProfileFormatNotSupportedKhr'", .{});
                 return VkResult.VideoProfileFormatNotSupportedKhr;
             },
             c.VK_ERROR_VIDEO_PROFILE_CODEC_NOT_SUPPORTED_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'VideoProfileCodecNotSupportedKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'VideoProfileCodecNotSupportedKhr'", .{});
                 return VkResult.VideoProfileCodecNotSupportedKhr;
             },
             c.VK_ERROR_VIDEO_STD_VERSION_NOT_SUPPORTED_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'VideoStdVersionNotSupportedKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'VideoStdVersionNotSupportedKhr'", .{});
                 return VkResult.VideoStdVersionNotSupportedKhr;
             },
             c.VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT => {
-                configuration.logger.log(.Debug, "Result was not a success: 'InvalidDrmFormatModifierPlaneLayoutExt'", .{});
+                logger.log(.Debug, "Result was not a success: 'InvalidDrmFormatModifierPlaneLayoutExt'", .{});
                 return VkResult.InvalidDrmFormatModifierPlaneLayoutExt;
             },
             c.VK_ERROR_NOT_PERMITTED_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'NotPermittedKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'NotPermittedKhr'", .{});
                 return VkResult.NotPermittedKhr;
             },
             c.VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT => {
-                configuration.logger.log(.Debug, "Result was not a success: 'FullScreenExclusiveModeLostExt'", .{});
+                logger.log(.Debug, "Result was not a success: 'FullScreenExclusiveModeLostExt'", .{});
                 return VkResult.FullScreenExclusiveModeLostExt;
             },
             c.VK_THREAD_IDLE_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'ThreadIdleKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'ThreadIdleKhr'", .{});
                 return VkResult.ThreadIdleKhr;
             },
             c.VK_THREAD_DONE_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'ThreadDoneKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'ThreadDoneKhr'", .{});
                 return VkResult.ThreadDoneKhr;
             },
             c.VK_OPERATION_DEFERRED_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'OperationDeferredKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'OperationDeferredKhr'", .{});
                 return VkResult.OperationDeferredKhr;
             },
             c.VK_OPERATION_NOT_DEFERRED_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'OperationNotDeferredKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'OperationNotDeferredKhr'", .{});
                 return VkResult.OperationNotDeferredKhr;
             },
             c.VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'InvalidVideoStdParametersKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'InvalidVideoStdParametersKhr'", .{});
                 return VkResult.InvalidVideoStdParametersKhr;
             },
             c.VK_ERROR_COMPRESSION_EXHAUSTED_EXT => {
-                configuration.logger.log(.Debug, "Result was not a success: 'CompressionExhaustedExt'", .{});
+                logger.log(.Debug, "Result was not a success: 'CompressionExhaustedExt'", .{});
                 return VkResult.CompressionExhaustedExt;
             },
             c.VK_ERROR_INCOMPATIBLE_SHADER_BINARY_EXT => {
-                configuration.logger.log(.Debug, "Result was not a success: 'IncompatibleShaderBinaryExt'", .{});
+                logger.log(.Debug, "Result was not a success: 'IncompatibleShaderBinaryExt'", .{});
                 return VkResult.IncompatibleShaderBinaryExt;
             },
             c.VK_ERROR_OUT_OF_POOL_MEMORY_KHR => {
-                configuration.logger.log(.Debug, "Result was not a success: 'OutOfPoolMemoryKhr'", .{});
+                logger.log(.Debug, "Result was not a success: 'OutOfPoolMemoryKhr'", .{});
                 return VkResult.OutOfPoolMemoryKhr;
             },
 
             else => {
-                configuration.logger.log(.Debug, "Result was not a success, ({})", .{result});
+                logger.log(.Debug, "Result was not a success, ({})", .{result});
                 return VkResult.Else;
             }
         }
@@ -2128,49 +2160,49 @@ pub const Vulkan = struct {
         try Glfw.init();
 
         const instance = Instance.new(SNAP_ALLOCATOR) catch |e| {
-            configuration.logger.log(.Error, "Failed to create instance", .{});
+            logger.log(.Error, "Failed to create instance", .{});
 
             return e;
         };
 
         const window = Window.new(instance, configuration.default_width, configuration.default_height) catch |e| {
-            configuration.logger.log(.Error, "Failed to create window", .{});
+            logger.log(.Error, "Failed to create window", .{});
 
             return e;
         };
 
         const device = Device.new(instance, window.surface, SNAP_ALLOCATOR) catch |e| {
-            configuration.logger.log(.Error, "Failed to create device", .{});
+            logger.log(.Error, "Failed to create device", .{});
 
             return e;
         };
 
         const swapchain = Swapchain.new(device, instance, window, null) catch |e| {
-            configuration.logger.log(.Error, "Failed to create swapchain", .{});
+            logger.log(.Error, "Failed to create swapchain", .{});
 
             return e;
         };
 
         const graphics_pipeline = GraphicsPipeline.new(device, swapchain, SNAP_ALLOCATOR) catch |e| {
-            configuration.logger.log(.Error, "Failed to create graphics_pipeline", .{});
+            logger.log(.Error, "Failed to create graphics_pipeline", .{});
 
             return e;
         };
 
         const command_pool = CommandPool.new(device) catch |e| {
-            configuration.logger.log(.Error, "Failed to create command pool", .{});
+            logger.log(.Error, "Failed to create command pool", .{});
 
             return e;
         };
 
         const sync = Sync.new(device) catch |e| {
-            configuration.logger.log(.Error, "Failed to create sync objects", .{});
+            logger.log(.Error, "Failed to create sync objects", .{});
 
             return e;
         };
 
         const buffer_handle = BufferHandle.new(device, instance, command_pool, graphics_pipeline) catch |e| {
-            configuration.logger.log(.Error, "Failed to create vertex and index buffers", .{});
+            logger.log(.Error, "Failed to create vertex and index buffers", .{});
 
             return e;
         };
@@ -2190,48 +2222,44 @@ pub const Vulkan = struct {
     pub fn draw(self: *Vulkan) !void {
         const image_index = self.swapchain.acquire_next_image(self.device, self.sync) catch |e| {
             if (Swapchain.has_to_recreate(e)) {
-                configuration.logger.log(.Debug, "Recreating swapchain", .{});
-
-                self.swapchain.recreate(self.device, self.instance, self.graphics_pipeline, self.window) catch |e2| {
-                    configuration.logger.log(.Error, "Recreate swapchain failed, quiting", .{});
+                self.swapchain.recreate(self.device, self.instance, self.graphics_pipeline, &self.window) catch |e2| {
+                    logger.log(.Error, "Recreate swapchain failed, quiting", .{});
 
                     return e2;
                 };
 
                 return;
             } else {
-                configuration.logger.log(.Error, "Could not rescue the frame, dying", .{});
+                logger.log(.Error, "Could not rescue the frame, dying", .{});
 
                 return e;
             }
         };
 
         self.command_pool.record(self.device, &self.graphics_pipeline, self.swapchain, self.buffer_handle, image_index) catch |e| {
-            configuration.logger.log(.Error, "Backend failed to record command buffer", .{});
+            logger.log(.Error, "Backend failed to record command buffer", .{});
 
             return e;
         };
 
         self.swapchain.queue_pass(self.device, self.command_pool, self.sync, image_index) catch |e| {
             if (Swapchain.has_to_recreate(e)) {
-                configuration.logger.log(.Debug, "Recreating swapchain", .{});
-
-                self.swapchain.recreate(self.device, self.instance, self.graphics_pipeline, self.window) catch |e2| {
-                    configuration.logger.log(.Error, "Recreate swapchain failed, quiting application", .{});
+                self.swapchain.recreate(self.device, self.instance, self.graphics_pipeline, &self.window) catch |e2| {
+                    logger.log(.Error, "Recreate swapchain failed, quiting application", .{});
 
                     return e2;
                 };
 
                 return;
             } else {
-                configuration.logger.log(.Error, "Could not handle current frame presentation, dying", .{});
+                logger.log(.Error, "Could not handle current frame presentation, dying", .{});
 
                 return e;
             }
         };
 
         self.sync.wait(self.device) catch {
-            configuration.logger.log(.Warn, "CPU did not wait for the next frame", .{});
+            logger.log(.Warn, "CPU did not wait for the next frame", .{});
         };
     }
 

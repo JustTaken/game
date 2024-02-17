@@ -1,4 +1,4 @@
-const Log = @import("log.zig");
+const Log = @import("../log.zig");
 const std = @import("std");
 
 pub const Configuration = struct {
@@ -18,12 +18,3 @@ pub const State = enum {
     Suspended,
 };
 
-pub const Io = struct {
-    pub fn read_file(file_name: []const u8, allocator: std.mem.Allocator) ![]const u8 {
-        var file = try std.fs.cwd().openFile(file_name, .{});
-        defer file.close();
-        const end_pos = try file.getEndPos();
-
-        return try file.readToEndAlloc(allocator, end_pos);
-    }
-};
