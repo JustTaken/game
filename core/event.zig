@@ -1,17 +1,16 @@
 const std = @import("std");
 
 const _config = @import("util/configuration.zig");
-const _wrapper = @import("renderer/wrapper.zig");
+const _platform  = @import("renderer/platform.zig");
 
-const Glfw = _wrapper.Glfw;
+const Platform = _platform.Platform;
 const State = _config.State;
-
 const logger = _config.Configuration.logger;
 
 pub const EventSystem = struct {
     events: [@intCast(@intFromEnum(Event.Type.Max))]Event,
-    clock: f64,
     state: State,
+    clock: f64,
 
     pub const Event = struct {
         handlers: []Handler,
@@ -29,7 +28,7 @@ pub const EventSystem = struct {
                 return self.listen_fn(self.ptr, argument);
             }
 
-            inline fn shutdown(self: Handler) void {
+            fn shutdown(self: Handler) void {
                 while (self.working) {}
             }
         };
@@ -60,7 +59,6 @@ pub const EventSystem = struct {
                 if(self.handlers[i].listen(argument)) break;
             }
         }
-
     };
 
     pub const Argument = union {
@@ -76,10 +74,9 @@ pub const EventSystem = struct {
         u8: [16]u8,
     };
 
-    const Press = Glfw.Press;
-
+    const Press = Platform.Press;
     const keys = [_]i32 {
-        Glfw.KeyF,
+        Platform.KeyF,
     };
 
     pub fn default(allocator: std.mem.Allocator) !EventSystem {
@@ -96,30 +93,25 @@ pub const EventSystem = struct {
 
         return .{
             .events = events,
-            .clock = Glfw.get_time(),
             .state = .Running,
+            .clock = Platform.get_time(),
         };
     }
 
-    pub fn input(self: *EventSystem, window: *Glfw.Window) void {
-        Glfw.poll_events();
-
-        const current_time = Glfw.get_time();
-
+    pub fn input(self: *EventSystem, window: *Platform.Window) void {
+        Platform.poll_events();
+        const current_time = Platform.get_time();
         self.clock = current_time;
 
-        if (Glfw.window_should_close(window)) {
-            self.state = .Closing;
-            logger.log(.Debug, "Total time passed inside the game {} seconds", .{self.clock});
-        }
-
         for (keys) |key| {
-            if (Glfw.get_key(window, key) == Press) {
+            if (Platform.get_key(window, key) == Press) {
                 self.fire(Event.Type.KeyPress, .{ .i32 = .{ key, Press} }) catch {
                     logger.log(.Error, "Could not fire event", .{});
                 };
             }
         }
+
+        if (Platform.window_should_close(window)) self.state = .Closing;
     }
 
     fn fire(self: *EventSystem, event_type: Event.Type, argument: Argument) !void {
@@ -139,5 +131,4 @@ pub const EventSystem = struct {
             event.shutdown();
         }
     }
-
 };

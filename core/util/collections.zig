@@ -9,10 +9,21 @@ pub fn ArrayList(comptime T: type) type {
         const Self = @This();
         const grow_factor = 10;
 
-        pub fn init(allocator: std.mem.Allocator) Self {
+        pub fn init(allocator: std.mem.Allocator, capacity: ?u32) !Self {
+            const items: []T = blk: {
+                if (capacity) |c| {
+                    const memory = try allocator.alloc(T, c);
+                    var i: []T = &[_]T {};
+                    i.ptr = memory.ptr;
+                    break :blk i;
+                } else {
+                    break :blk &[_]T {};
+                }
+            };
+
             return Self {
-                .items = &[_]T{},
-                .capacity = 0,
+                .items = items,
+                .capacity = capacity orelse 0,
                 .allocator = allocator
             };
         }

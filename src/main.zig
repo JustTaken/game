@@ -1,19 +1,14 @@
 const std = @import("std");
 const core = @import("core");
 
-const Application = core.Application;
-const logger = Application.logger;
-const Obj = core.Obj;
-const HashSet = core.HashSet;
-const Vec = core.Vec;
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+const allocator = gpa.allocator();
 
-var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-const allocator = arena.allocator();
+const Application = core.Application;
+const Renderer = core.Renderer;
+const TrueTypeFont = core.TrueTypeFont;
 
 pub fn main() void {
-    logger.log(.Info, "Initilizing application", .{});
-    defer logger.log(.Info, "Shutting down application", .{});
-
-    var app = Application.new();
+    var app = Application(Renderer.Vulkan).new();
     app.run();
 }

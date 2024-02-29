@@ -1,35 +1,43 @@
 const std = @import("std");
-const _config = @import("../util/configuration.zig");
-const _wrapper = @import("wrapper.zig");
+const _platform = @import("platform.zig");
+const _configuration = @import("../util/configuration.zig");
 
-const Glfw = _wrapper.Glfw;
-const Vulkan = _wrapper.Vulkan;
-const configuration = _config.Configuration;
+const Platform = _platform.Platform;
 
-pub const Backend = struct {
-    vulkan: Vulkan,
+const logger = _configuration.Configuration.logger;
 
-    pub fn new() !Backend {
-        const vulkan = Vulkan.new() catch |e| {
-            configuration.logger.log(.Error, "Failed to creat vulkan instance", .{});
+pub fn Backend(comptime T: type) type {
+    return struct {
+        renderer: T,
+        window: *Platform.Window,
 
-            return e;
-        };
+        const Self = @This();
 
-        return .{
-            .vulkan = vulkan,
-        };
-    }
+        pub fn new() !Self {
+            const renderer = T.new() catch |e| {
+                logger.log(.Error, "Failed to initialize renderer", .{});
 
-    pub fn draw(self: *Backend) !void {
-        try self.vulkan.draw();
-    }
+                return e;
+            };
 
-    pub fn shutdown(self: *Backend) void {
-        self.vulkan.shutdown();
-    }
+            return .{
+                .renderer = renderer,
+                .window = renderer.window.handle,
+            };
+        }
 
-    pub fn get_window(self: Backend) *Glfw.Window {
-        return self.vulkan.window.handle;
-    }
+        pub fn draw(self: *Self) !void {
+            try self.renderer.draw();
+        }
+
+        pub fn shutdown(self: *Self) void {
+            self.renderer.shutdown();
+        }
+    };
+}
+
+pub const Renderer = enum {
+    Vulkan,
+    OpenGL, // TODO: Make this work
+    X12, // TODO: Make this work
 };

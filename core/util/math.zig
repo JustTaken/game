@@ -139,9 +139,9 @@ pub const Camera = struct {
     eye: Vec,
     center: Vec,
 
-    pub inline fn default() Camera {
+    pub inline fn init(eye: Vec) Camera {
         return .{
-            .eye = Vec.init(0.0, 3.0, 5.0),
+            .eye = eye,
             .center = Vec.init(0.0, 0.0, 0.0),
             .up = Vec.init(0.0, -1.0, 0.0),
         };
