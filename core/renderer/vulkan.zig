@@ -1280,7 +1280,7 @@ pub const Vulkan = struct {
 
             const descriptor_set_layout = device.create_descriptor_set_layout(.{
                 .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-                .bindingCount = 1,
+                .bindingCount = 2,
                 .pBindings = &[_]c.VkDescriptorSetLayoutBinding {
                     .{
                         .binding = 0,

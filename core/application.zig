@@ -81,6 +81,7 @@ pub fn Application(comptime renderer: Renderer) type {
                     self.game.update();
                     self.event_system.input(self.backend.window);
                 }
+
             }
 
             self.shutdown();
