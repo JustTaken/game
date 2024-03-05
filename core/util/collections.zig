@@ -10,16 +10,10 @@ pub fn ArrayList(comptime T: type) type {
         const grow_factor = 10;
 
         pub fn init(allocator: std.mem.Allocator, capacity: ?u32) !Self {
-            const items: []T = blk: {
-                if (capacity) |c| {
-                    const memory = try allocator.alloc(T, c);
-                    var i: []T = &[_]T {};
-                    i.ptr = memory.ptr;
-                    break :blk i;
-                } else {
-                    break :blk &[_]T {};
-                }
-            };
+            const memory = try allocator.alloc(T, capacity orelse 0);
+            var items: []T = &[_]T {};
+            items.ptr = memory.ptr;
+            items.len = 0;
 
             return Self {
                 .items = items,
@@ -44,6 +38,10 @@ pub fn ArrayList(comptime T: type) type {
 
             self.items.len += 1;
             self.items[self.items.len - 1] = item;
+        }
+
+        pub fn clear(self: *Self) !void {
+            self.items.len = 0;
         }
     };
 }

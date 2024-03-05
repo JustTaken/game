@@ -1,11 +1,14 @@
 const std = @import("std");
-const _collections = @import("collections.zig");
+
+const _collections = @import("../util/collections.zig");
+const _math = @import("../util/math.zig");
 
 const ArrayList = _collections.ArrayList;
+const Vec = _math.Vec;
 
 pub const TrueTypeFont = struct {
-    tables: ArrayList(Table),
     glyphs: ArrayList(Glyph),
+    tables: ArrayList(Table),
     header: Header,
 
     num_tables: u16,
@@ -214,8 +217,8 @@ pub const TrueTypeFont = struct {
             var created:             [8]u8 = undefined;
             var modified:            [8]u8 = undefined;
             var xMin:                [2]u8 = undefined;
-            var yMin:                [2]u8 = undefined;
             var xMax:                [2]u8 = undefined;
+            var yMin:                [2]u8 = undefined;
             var yMax:                [2]u8 = undefined;
             var mac_style:           [2]u8 = undefined;
             var lowest_rec_ppem:     [2]u8 = undefined;
@@ -232,8 +235,8 @@ pub const TrueTypeFont = struct {
             std.debug.assert(try file.read(&created)             == created.len);
             std.debug.assert(try file.read(&modified)            == modified.len);
             std.debug.assert(try file.read(&xMin)                == xMin.len);
-            std.debug.assert(try file.read(&yMin)                == yMin.len);
             std.debug.assert(try file.read(&xMax)                == xMax.len);
+            std.debug.assert(try file.read(&yMin)                == yMin.len);
             std.debug.assert(try file.read(&yMax)                == yMax.len);
             std.debug.assert(try file.read(&mac_style)           == mac_style.len);
             std.debug.assert(try file.read(&lowest_rec_ppem)     == lowest_rec_ppem.len);
@@ -327,8 +330,9 @@ pub const TrueTypeFont = struct {
         }
 
         var glyphs = try ArrayList(Glyph).init(allocator, @intCast(to_u16(glyphs_count)));
+
         for (0..to_u16(glyphs_count)) |k| {
-            try glyphs.push(try Glyph.new(tables, file, header, allocator, k));
+            try glyphs.push(Glyph.new(tables, file, header, allocator, k) catch {continue;});
         }
 
         return .{
@@ -359,5 +363,95 @@ pub const TrueTypeFont = struct {
 
     fn to_u16(slice: [2]u8) u16 {
         return @as(u16, @intCast(slice[0])) << 8 | @as(u16, @intCast(slice[1]));
+    }
+};
+
+pub const Object = struct {
+    vertex: ArrayList(Vec),
+    index: ArrayList(u16),
+
+    pub const Type = enum {
+        Cube,
+        Cone,
+        Plane,
+
+        None,
+
+        fn path(self: Type) []const u8 {
+            return switch (self) {
+                .Cube => "assets/cube.obj",
+                .Cone => "assets/cone.obj",
+                .Plane => "assets/plane.obj",
+                .None => "",
+            };
+        }
+    };
+
+    pub fn new(typ: Type, allocator: std.mem.Allocator) !Object {
+        var file = try std.fs.cwd().openFile(typ.path(), .{});
+        defer file.close();
+        const size = try file.getEndPos();
+
+        var vertex_array = try ArrayList(Vec).init(allocator, @intCast(size / 3));
+        var index_array = try ArrayList(u16).init(allocator, @intCast(size));
+
+        var buf_reader = std.io.bufferedReader(file.reader());
+        var in_stream = buf_reader.reader();
+        var buffer: [100]u8 = undefined;
+
+        while (true) {
+            if (in_stream.readUntilDelimiterOrEof(&buffer, '\n') catch {
+                break;
+            }) |line| {
+                if (line.len <= 3) continue;
+                var split = std.mem.split(u8, line, &.{32});
+                const first = split.first();
+
+                if (std.mem.eql(u8, first, "v")) {
+                    var numbers: [3]f32 = undefined;
+                    var count: u32 = 0;
+
+                    while (split.next()) |word| {
+                        numbers[count] = try std.fmt.parseFloat(f32, word);
+                        count += 1;
+                    }
+
+                    const vec = Vec{
+                        .x = numbers[0],
+                        .y = numbers[1],
+                        .z = numbers[2],
+                    };
+
+                    try vertex_array.push(vec);
+                } else if (std.mem.eql(u8, first, "f")) {
+                    var count: u8 = 0;
+                    var numbers: [12]u16 = undefined;
+
+                    while (split.next()) |word| {
+                        var ns = std.mem.split(u8, word, &.{47});
+
+                        while (ns.next()) |n| {
+                            numbers[count] = try std.fmt.parseInt(u16, n, 10) - 1;
+                            count += 1;
+                        }
+                    }
+
+                    try index_array.push(numbers[6]);
+                    try index_array.push(numbers[3]);
+                    try index_array.push(numbers[0]);
+
+                    try index_array.push(numbers[0]);
+                    try index_array.push(numbers[9]);
+                    try index_array.push(numbers[6]);
+                }
+            } else {
+                break;
+            }
+        }
+
+        return .{
+            .vertex = vertex_array,
+            .index = index_array,
+        };
     }
 };

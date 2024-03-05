@@ -38,15 +38,13 @@ pub fn Application(comptime renderer: Renderer) type {
             var gpa = std.heap.GeneralPurposeAllocator(.{}){};
             const allocator = gpa.allocator();
 
-            const game: Game = .{
-                .name = Configuration.application_name,
-                .window = .{
-                    .width = Configuration.default_width,
-                    .height = Configuration.default_height,
-                },
+            var game = Game.new() catch {
+                logger.log(.Fatal, "Could not create game instance", .{});
+
+                unreachable;
             };
 
-            const event_system = EventSystem.default(allocator) catch {
+            const event_system = EventSystem.new(&game, allocator) catch {
                 logger.log(.Fatal, "Could not create event handle system", .{});
 
                 unreachable;
@@ -71,17 +69,22 @@ pub fn Application(comptime renderer: Renderer) type {
         pub fn run(self: *Self) void {
             while (self.event_system.state != .Closing) {
                 if (self.event_system.state != .Suspended) {
-                    self.backend.draw() catch {
+                    self.backend.draw(&self.game) catch {
                         self.shutdown();
                         logger.log(.Fatal, "Unrecoverable problem occoured on frame, closing", .{});
 
                         unreachable;
                     };
 
-                    self.game.update();
+                    self.game.update() catch {
+                        self.shutdown();
+                        logger.log(.Fatal, "Unrecoverable problem at game instance update", .{});
+
+                        unreachable;
+
+                    };
                     self.event_system.input(self.backend.window);
                 }
-
             }
 
             self.shutdown();

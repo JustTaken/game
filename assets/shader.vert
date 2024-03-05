@@ -1,23 +1,20 @@
 #version 460
 
-layout(location = 0) in vec2 positions;
+layout(location = 0) in vec3 positions;
 layout(location = 1) in vec3 colors;
 
+layout(location = 0) out vec4 frag_color;
+
 layout(set = 0, binding = 0) uniform UniformGlobalObject {
-    mat4 proj;
-    mat4 view;
+  mat4 view;
 } ugo;
 
-layout(set = 0, binding = 1) uniform UniformModelObject {
-    mat4 scale;
-    mat4 rotation;
-    mat4 translation;
+layout(set = 1, binding = 0) uniform UniformModelObject {
+  mat4 model;
+  mat4 color;
 } umo;
 
-layout(location = 0) out vec3 frag_color;
-
 void main() {
-    mat4 model = umo.scale * umo.rotation * umo.translation;
-    gl_Position = ugo.proj * ugo.view * model * vec4(positions, 0.0, 1.0);
-    frag_color = colors;
+  gl_Position = ugo.view * umo.model * vec4(positions, 1.0);
+  frag_color = umo.color * vec4(colors, 1.0);
 }

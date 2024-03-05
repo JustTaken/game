@@ -1,5 +1,8 @@
 const std = @import("std");
 
+pub const TO_DEGREE = 180.0 / std.math.pi;
+pub const TO_RAD = std.math.pi / 180.0;
+
 pub const Vec = struct {
     x: f32,
     y: f32,
@@ -131,91 +134,5 @@ pub const Matrix = struct {
             [4]f32 {m1[2][0] * m2[0][0] + m1[2][1] * m2[1][0] + m1[2][2] * m2[2][0] + m1[2][3] * m2[3][0], m1[2][0] * m2[0][1] + m1[2][1] * m2[1][1] + m1[2][2] * m2[2][1] + m1[2][3] * m2[3][1], m1[2][0] * m2[0][2] + m1[2][1] * m2[1][2] + m1[2][2] * m2[2][2] + m1[2][3] * m2[3][2], m1[2][0] * m2[0][3] + m1[2][1] * m2[1][3] + m1[2][2] * m2[2][3] + m1[2][3] * m2[3][3]},
             [4]f32 {m1[3][0] * m2[0][0] + m1[3][1] * m2[1][0] + m1[3][2] * m2[2][0] + m1[3][3] * m2[3][0], m1[3][0] * m2[0][1] + m1[3][1] * m2[1][1] + m1[3][2] * m2[2][1] + m1[3][3] * m2[3][1], m1[3][0] * m2[0][2] + m1[3][1] * m2[1][2] + m1[3][2] * m2[2][2] + m1[3][3] * m2[3][2], m1[3][0] * m2[0][3] + m1[3][1] * m2[1][3] + m1[3][2] * m2[2][3] + m1[3][3] * m2[3][3]},
         };
-    }
-};
-
-pub const Camera = struct {
-    up: Vec,
-    eye: Vec,
-    center: Vec,
-
-    pub inline fn init(eye: Vec) Camera {
-        return .{
-            .eye = eye,
-            .center = Vec.init(0.0, 0.0, 0.0),
-            .up = Vec.init(0.0, -1.0, 0.0),
-        };
-    }
-
-    pub inline fn view_matrix(self: *Camera) [4][4]f32 {
-        const direction = Vec.sub(self.eye, self.center).normalize();
-        const right = Vec.cross(direction, self.up.normalize()).normalize();
-
-        self.up = Vec.cross(right, direction);
-
-        return [4][4]f32 {
-            [4]f32 {right.x, self.up.x, -direction.x, 0.0},
-            [4]f32 {right.y, self.up.y, -direction.y, 0.0},
-            [4]f32 {right.z, self.up.z, -direction.z, 0.0},
-            [4]f32 {-Vec.dot(right, self.eye), -Vec.dot(self.up, self.eye), Vec.dot(direction, self.eye), 1.0},
-        };
-    }
-
-    fn mouse(self: *Camera, x: i32, y: i32) void {
-        var direction = Vec.sub(self.eye, self.center);
-        const right = Vec.cross(direction, self.up);
-
-        const rotate = Matrix.mult(
-            Matrix.rotate(
-                @as(f32, @floatFromInt(x)) * std.math.pi * 0.1 / -180.0,
-                self.up.normalize()
-            ),
-            Matrix.rotate(
-                @as(f32, @floatFromInt(y)) * std.math.pi * 0.1 / -180.0,
-                right.normalize()
-            )
-        );
-
-        direction = Vec.mult(
-            direction,
-            rotate
-        );
-
-        self.center = Vec.sum(self.eye, direction);
-        self.up = Vec.cross(right, direction).normalize();
-    }
-
-    fn move_foward(self: *Camera, speed: f32) void {
-        const delta = Vec.sub(self.eye, self.center).normalize().scale(speed * 10.0);
-        self.eye = Vec.sum(delta, self.eye);
-        self.center = Vec.sum(delta, self.center);
-    }
-
-    fn move_backward(self: *Camera, speed: f32) void {
-        const delta = Vec.sub(self.eye, self.center).normalize().scale(speed * 10.0);
-        self.eye = Vec.sub(delta, self.eye);
-        self.center = Vec.sum(delta, self.center);
-    }
-
-    fn move_right(self: *Camera, speed: f32) void {
-        const delta = Vec.cross(Vec.sub(self.eye, self.center), self.up).normalize().scale(speed * 10.0);
-        self.eye = Vec.sum(delta, self.eye);
-        self.center = Vec.sum(delta, self.center);
-    }
-
-    fn move_left(self: *Camera, speed: f32) void {
-        const delta = Vec.cross(Vec.sub(self.eye, self.center), self.up).normalize().scale(speed * 10.0);
-        self.eye = Vec.sub(delta, self.eye);
-        self.center = Vec.sub(delta, self.center);
-    }
-
-    fn move_up(self: *Camera, speed: f32) void {
-        self.eye = Vec.sub(self.up.normalize().scale(speed), self.eye);
-        self.center = Vec.sub(self.up.normalize().scale(speed), self.center);
-    }
-
-    fn move_down(self: *Camera, speed: f32) void {
-        self.eye = Vec.sum(self.up.normalize().scale(speed), self.eye);
-        self.center = Vec.sum(self.up.normalize().scale(speed), self.center);
     }
 };

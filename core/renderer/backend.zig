@@ -1,8 +1,10 @@
 const std = @import("std");
 const _platform = @import("platform.zig");
 const _configuration = @import("../util/configuration.zig");
+const _game = @import("../game.zig");
 
 const Platform = _platform.Platform;
+const Game = _game.Game;
 
 const logger = _configuration.Configuration.logger;
 
@@ -26,8 +28,8 @@ pub fn Backend(comptime T: type) type {
             };
         }
 
-        pub fn draw(self: *Self) !void {
-            try self.renderer.draw();
+        pub fn draw(self: *Self, game: *Game) !void {
+            try self.renderer.draw(game);
         }
 
         pub fn shutdown(self: *Self) void {
