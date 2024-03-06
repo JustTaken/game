@@ -12,30 +12,38 @@ const ArrayList = _collections.ArrayList;
 const logger = _config.Configuration.logger;
 const ObjectHandle = _game.ObjectHandle;
 
+var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+const allocator = arena.allocator();
+
 pub const EventSystem = struct {
     events: []Event,
     state: State,
     clock: f64,
+    arena: std.heap.ArenaAllocator,
 
     pub const Event = struct {
-        handlers: ArrayList(Handler),
-        allocator: std.mem.Allocator,
-        typ: Type,
+        listeners: ArrayList(Listener),
+        emiters: ArrayList(Emiter),
 
-        pub const Handler = struct {
+        pub const Listener= struct {
             working: bool = false,
             ptr: *anyopaque,
             listen_fn: *const fn (*anyopaque, Argument) bool,
 
-            fn listen(self: *Handler, argument: Argument) bool {
+            fn listen(self: *Listener, argument: Argument) bool {
                 self.working = true;
                 defer self.working = false;
                 return self.listen_fn(self.ptr, argument);
             }
 
-            fn shutdown(self: Handler) void {
+            fn shutdown(self: Listener) void {
                 while (self.working) {}
             }
+        };
+
+        pub const Emiter = struct {
+            changed: bool,
+            value: Argument,
         };
 
         const Type = enum {
@@ -44,23 +52,34 @@ pub const EventSystem = struct {
             MouseRight,
             MouseWheel,
             MouseLeft,
+            WindowResize,
 
             Max,
         };
 
-        fn new_handler(self: *Event, handler: Handler) !void {
-            try self.handlers.push(handler);
+        fn new_listener(self: *Event, listener: Listener) !void {
+            try self.listeners.push(listener);
+        }
+
+        fn new_emiter(self: *Event) !*Emiter {
+            const emiter: Emiter = .{
+                .changed = false,
+                .value = .{ .u32  = .{0, 0} },
+            };
+
+            try self.emiters.push(emiter);
+            return self.emiters.get_last_mut();
         }
 
         fn shutdown(self: Event) void {
-            for (self.handlers.items) |handler| {
-                handler.shutdown();
+            for (self.listeners.items) |listener| {
+                listener.shutdown();
             }
         }
 
         fn listen(self: *Event, argument: Argument) void {
-            for (0..self.handlers.items.len) |i| {
-                if(self.handlers.items[i].listen(argument)) break;
+            for (0..self.listeners.items.len) |i| {
+                if(self.listeners.items[i].listen(argument)) break;
             }
         }
     };
@@ -83,38 +102,46 @@ pub const EventSystem = struct {
         Platform.KeyF,
     };
 
-    pub fn new(game: *Game, allocator: std.mem.Allocator) !EventSystem {
+    pub fn new() !EventSystem {
         const n = @intFromEnum(Event.Type.Max);
         var events = try allocator.alloc(Event, n);
 
         for (0..n) |i| {
             events[i] = .{
-                .handlers = try ArrayList(Event.Handler).init(allocator, 0),
-                .allocator = allocator,
-                .typ = @enumFromInt(i),
+                .listeners = try ArrayList(Event.Listener).init(allocator, 1),
+                .emiters = try ArrayList(Event.Emiter).init(allocator, 1),
             };
         }
-
-        try events[@intFromEnum(Event.Type.KeyPress)].new_handler(game.object_handle.handler());
-        // try events[@intFromEnum(Event.Type.KeyPress)].new_handler(game.camera.handler());
-        // const obj: *ObjectHandle = @alignCast(@ptrCast(events[@intFromEnum(Event.Type.KeyPress)].handlers.items[0].ptr));
-        // logger.log(.Debug, "tamanhao: {any}", .{obj.objects.items[0]});
 
         return .{
             .events = events,
             .state = .Running,
             .clock = Platform.get_time(),
+            .arena = arena,
         };
     }
 
-    pub fn add_listener(self: *EventSystem, handle: Event.Handler, code: Event.Handler.Type) !void {
-        try self.events[@intFromEnum(code)].new_handler(handle);
+    pub fn add_listener(self: *EventSystem, handle: Event.Listener, code: Event.Type) !void {
+        try self.events[@intFromEnum(code)].new_listener(handle);
+    }
+
+    pub fn add_emiter(self: *EventSystem, code: Event.Type) !*Event.Emiter {
+        return try self.events[@intFromEnum(code)].new_emiter();
     }
 
     pub fn input(self: *EventSystem, window: *Platform.Window) void {
         Platform.poll_events();
         const current_time = Platform.get_time();
         self.clock = current_time;
+
+        for (0..self.events.len) |i| {
+            for (0..self.events[i].emiters.items.len) |k| {
+                if (self.events[i].emiters.items[k].changed) {
+                    self.events[i].listen(self.events[i].emiters.items[k].value);
+                    self.events[i].emiters.items[k].changed = false;
+                }
+            }
+        }
 
         for (keys) |key| {
             if (Platform.get_key(window, key) == Press) {
@@ -141,5 +168,7 @@ pub const EventSystem = struct {
         for (self.events) |event| {
             event.shutdown();
         }
+
+        _ = self.arena.deinit();
     }
 };

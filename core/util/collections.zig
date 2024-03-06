@@ -40,7 +40,17 @@ pub fn ArrayList(comptime T: type) type {
             self.items[self.items.len - 1] = item;
         }
 
+        pub fn get_last_mut(self: *Self) !*T {
+            return &self.items[self.items.len - 1];
+        }
+
         pub fn clear(self: *Self) !void {
+            self.capacity = 1;
+            const old_memory = self.items.ptr[0..self.items.len];
+            const new_memory  = try self.allocator.alloc(T, self.capacity);
+
+            self.allocator.free(old_memory);
+            self.items.ptr = new_memory.ptr;
             self.items.len = 0;
         }
     };

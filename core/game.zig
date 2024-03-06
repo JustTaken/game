@@ -1,9 +1,11 @@
 const std = @import("std");
+
 const _collections = @import("util/collections.zig");
 const _math = @import("util/math.zig");
 const _assets = @import("renderer/assets.zig");
 const _event = @import("event.zig");
 const _platform = @import("renderer/platform.zig");
+const _configuration = @import("util/configuration.zig");
 
 const Vec = _math.Vec;
 const Matrix = _math.Matrix;
@@ -11,9 +13,10 @@ const ArrayList = _collections.ArrayList;
 const ObjectType = _assets.Object.Type;
 const EventSystem = _event.EventSystem;
 const Platform = _platform.Platform;
+const configuration = _configuration.Configuration;
 
-const TO_RAD = _math.TO_RAD;
-var colors: [3]f32 = .{0, 0, 0};
+var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+const allocator = arena.allocator();
 
 pub const Game = struct {
     object_handle: ObjectHandle,
@@ -21,62 +24,30 @@ pub const Game = struct {
 
     pub fn new() !Game {
         var object_handle = try ObjectHandle.new();
-        std.debug.print("before the crash\n", .{});
-        try object_handle.objects.push(ObjectHandle.Object.default());
+        try object_handle.add_object(.{
+            .model = Matrix.scale(0.3, 0.3, 0.3),
+            .color = Matrix.scale(0.1, 0.9, 0.3),
+            .typ = .Plane,
+        });
 
         return .{
             .object_handle = object_handle,
             .camera = Camera.init(.{
                 .x = 0.0,
                 .y = 0.0,
-                .z = 1.0,
+                .z = -1.0,
             }),
         };
     }
 
     pub fn update(self: *Game) !void {
         _ = self;
-        // if (frames == 0) {
-        //     try self.object_handle.add_object(ObjectHandle.Object.default());
-        // } else if (frames % 2 == 0) {
-        //     const index = 0;
-        //     std.debug.print("len: {d}\n", .{self.object_handle.objects.items.len});
-        //     try self.object_handle.update_object(.{
-        //         .data = .{
-        //             .model = Matrix.mult(Matrix.rotate(0.001, .{
-        //                 .x = 0.0,
-        //                 .y = 0.0,
-        //                 .z = 1.0,
-        //                 }), self.object_handle.objects.items[index].model),
-        //         },
-        //         .id = index,
-        //     });
-        // } else {
-        //     const index = 0;
 
-        //     colors[2] += 0.1;
+        // std.debug.print("proj: {d}\n", .{self.camera.proj});
+    }
 
-        //     if (colors[2] >= 1.0) {
-        //         colors[2] = 0;
-        //         colors[1] += 0.1;
-        //         if (colors[1] >= 1.0) {
-        //             colors[1] = 0;
-        //             colors[0] += 0.1;
-        //             if (colors[0] >= 1.0) {
-        //                 colors[0] = 0;
-        //             }
-        //         }
-        //     }
-
-        //     const matrix = Matrix.scale(colors[0], colors[1], colors[2]);
-
-        //     try self.object_handle.update_object(.{
-        //         .data = .{
-        //             .color = matrix
-        //         },
-        //         .id = index,
-        //     });
-        // }
+    pub fn shutdown(_: *Game) void {
+        _ = arena.deinit();
     }
 
     fn render(_: *Game) !void {}
@@ -87,7 +58,7 @@ pub const ObjectHandle = struct {
     objects: ArrayList(Object),
     to_update: ArrayList(Update),
 
-    pub fn has_change(self: ObjectHandle) bool {
+    pub inline fn has_change(self: ObjectHandle) bool {
         return self.to_update.items.len > 0;
     }
 
@@ -103,27 +74,26 @@ pub const ObjectHandle = struct {
         try self.to_update.clear();
     }
 
-    pub fn handler(self: *ObjectHandle) EventSystem.Event.Handler {
+    pub fn handler(self: *ObjectHandle) EventSystem.Event.Listener {
         return .{
-            .ptr = @ptrCast(@alignCast(self)),
+            .ptr = self,
             .listen_fn = listen,
         };
     }
 
     pub fn listen(ptr: *anyopaque, argument: EventSystem.Argument) bool {
         const self: *ObjectHandle = @ptrCast(@alignCast(ptr));
-        std.debug.print("new len: {any}\n", .{self.objects.items.len});
 
         switch (argument.i32[0]) {
             Platform.KeyF => {
-                // self.update_object(.{
-                //     .data = .{
-                //         .model = Matrix.mult(self.objects.items[0].model, Matrix.translate(0.01, 0.0, 0.0)),
-                //     },
-                //     .id = 0,
-                // }) catch {
-                //     return false;
-                // }
+                self.update_object(.{
+                    .data = .{
+                        .model = Matrix.mult(self.objects.items[0].model, Matrix.translate(0.0, 0.0, 0.01)),
+                    },
+                    .id = 0,
+                }) catch {
+                    return false;
+                };
             },
             else => {},
         }
@@ -132,7 +102,7 @@ pub const ObjectHandle = struct {
     }
 
     fn update_object(self: *ObjectHandle, update: Update) !void {
-        if (update.id > self.objects.items.len) return error.OutOfLength;
+        if (update.id >= self.objects.items.len) return error.OutOfLength;
 
         switch (update.data) {
             .color => |color| self.objects.items[update.id].color = color,
@@ -144,13 +114,9 @@ pub const ObjectHandle = struct {
     }
 
     fn new() !ObjectHandle {
-        var gpa = std.heap.GeneralPurposeAllocator(.{}) {};
-        const allocator = gpa.allocator();
-        const objects = try ArrayList(Object).init(allocator, null);
-
         return .{
-            .objects = objects,
-            .to_update = try ArrayList(Update).init(allocator, 1),
+            .objects = try ArrayList(Object).init(allocator, 0),
+            .to_update = try ArrayList(Update).init(allocator, 0),
         };
     }
 
@@ -190,6 +156,7 @@ pub const ObjectHandle = struct {
 };
 
 pub const Camera = struct {
+    proj: [4][4]f32,
     up: Vec,
     eye: Vec,
     center: Vec,
@@ -198,6 +165,7 @@ pub const Camera = struct {
 
     pub inline fn init(eye: Vec) Camera {
         return .{
+            .proj = Matrix.perspective(std.math.pi / 4.0, @as(f32, @floatFromInt(configuration.default_width)) / @as(f32, @floatFromInt(configuration.default_height)), 0.1, 10.0),
             .eye = eye,
             .center = .{
                 .x = 0.0,
@@ -212,7 +180,7 @@ pub const Camera = struct {
         };
     }
 
-    pub fn handler(self: *Camera) EventSystem.Event.Handler {
+    pub fn handler(self: *Camera) EventSystem.Event.Listener {
         return .{
             .ptr = self,
             .listen_fn = listen,
@@ -221,26 +189,23 @@ pub const Camera = struct {
 
     pub fn listen(ptr: *anyopaque, argument: EventSystem.Argument) bool {
         const self: *Camera = @alignCast(@ptrCast(ptr));
-        _ = self;
-        switch (argument.i32[0]) {
-            else => {},
-        }
+
+        self.proj = Matrix.perspective(std.math.pi / 4.0, @as(f32, @floatFromInt(argument.u32[0])) / @as(f32, @floatFromInt(argument.u32[1])), 0.1, 10.0);
+        self.changed = true;
 
         return false;
     }
 
-
     pub inline fn view_matrix(self: *Camera) [4][4]f32 {
         const direction = Vec.sub(self.eye, self.center).normalize();
-        const right = Vec.cross(direction, self.up.normalize()).normalize();
-
+        const right = Vec.cross(direction, self.up).normalize();
         self.up = Vec.cross(right, direction);
 
         return [4][4]f32 {
-            [4]f32 {right.x, self.up.x, -direction.x, 0.0},
-            [4]f32 {right.y, self.up.y, -direction.y, 0.0},
-            [4]f32 {right.z, self.up.z, -direction.z, 0.0},
-            [4]f32 {-Vec.dot(right, self.eye), -Vec.dot(self.up, self.eye), -Vec.dot(direction, self.eye), 1.0},
+            [4]f32 {right.x, self.up.x, direction.x, 0.0},
+            [4]f32 {right.y, self.up.y, direction.y, 0.0},
+            [4]f32 {right.z, self.up.z, direction.z, 0.0},
+            [4]f32 {-self.eye.x, -self.eye.y, -self.eye.z, 1.0},
         };
     }
 

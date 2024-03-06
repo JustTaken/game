@@ -7,6 +7,7 @@ const _math = @import("../util/math.zig");
 const _platform = @import("platform.zig");
 const _assets = @import("assets.zig");
 const _game = @import("../game.zig");
+const _event = @import("../event.zig");
 
 const c = _platform.c;
 
@@ -19,6 +20,7 @@ const Matrix = _math.Matrix;
 const Object = _assets.Object;
 const Game = _game.Game;
 const ObjectHandle = _game.ObjectHandle;
+const Emiter = _event.EventSystem.Event.Emiter;
 
 const logger = configuration.logger;
 
@@ -66,8 +68,7 @@ pub const Vulkan = struct {
                 return e;
             };
 
-            try check(PFN_vkCreateInstance(std.mem.zeroInit(c.VkInstanceCreateInfo,
-                &.{
+            try check(PFN_vkCreateInstance(&.{
                     .sType = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
                     .pApplicationInfo = &.{
                         .sType = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -79,7 +80,7 @@ pub const Vulkan = struct {
                     },
                     .enabledExtensionCount = @as(u32, @intCast(extensions.len)),
                     .ppEnabledExtensionNames = extensions.ptr,
-                }),
+                },
                 null,
                 &instance));
 
@@ -1054,6 +1055,11 @@ pub const Vulkan = struct {
                     window.width = extent.width;
                     window.height = extent.height;
                     window.last_resize = Platform.get_time();
+                    window.emiter.value = .{
+                        .u32 = .{ window.width, window.height },
+                    };
+                    // logger.log(.Debug, "changed, {d}", .{window.emiter.value.u32});
+                    window.emiter.changed = true;
                 } else if ((Platform.get_time() - window.last_resize) >= 0.5) {
                     break;
                 }
@@ -1136,6 +1142,7 @@ pub const Vulkan = struct {
         last_resize: f64,
         width: u32,
         height: u32,
+        emiter: *Emiter = undefined,
 
         fn new(instance: Instance, width: u32, height: u32) !Window {
             const handle = Platform.create_window(width, height, &configuration.application_name[0]) catch |e| {
@@ -1157,6 +1164,10 @@ pub const Vulkan = struct {
                 .height = height,
                 .last_resize = Platform.get_time(),
             };
+        }
+
+        pub fn register_emiter(self: *Window, emiter: *Emiter) void {
+            self.emiter = emiter;
         }
 
         fn destroy(self: Window, instance: Instance) void {
@@ -1383,7 +1394,7 @@ pub const Vulkan = struct {
                 .polygonMode = c.VK_POLYGON_MODE_FILL,
                 .lineWidth = 1.0,
                 .cullMode = c.VK_CULL_MODE_BACK_BIT,
-                .frontFace = c.VK_FRONT_FACE_CLOCKWISE,
+                .frontFace = c.VK_FRONT_FACE_COUNTER_CLOCKWISE,
                 .depthBiasEnable = c.VK_FALSE,
                 .depthBiasConstantFactor = 0.0,
                 .depthBiasClamp = 0.0,
@@ -1710,10 +1721,16 @@ pub const Vulkan = struct {
             descriptor_set: c.VkDescriptorSet,
 
             const Uniform = struct {
+                proj: [4][4]f32,
                 view: [4][4]f32,
             };
 
-            fn new(device: Device, memory_properties: c.VkPhysicalDeviceMemoryProperties, descriptor: *GraphicsPipeline.Descriptor, allocator: std.mem.Allocator) !Global {
+            fn new(
+                device: Device,
+                memory_properties: c.VkPhysicalDeviceMemoryProperties,
+                descriptor: *GraphicsPipeline.Descriptor,
+                allocator: std.mem.Allocator
+            ) !Global {
                 var mapped: *Uniform = undefined;
                 const buffer = try Buffer.new(
                     device,
@@ -1727,7 +1744,12 @@ pub const Vulkan = struct {
                 );
 
                 try device.map_memory(buffer.memory, Uniform, 1, @ptrCast(&mapped));
-                @memcpy(@as([*]Uniform, @ptrCast(@alignCast(mapped))), &[_]Uniform { .{ .view = Matrix.scale(1.0, 1.0, 1.0) } });
+                @memcpy(@as([*]Uniform, @ptrCast(@alignCast(mapped))), &[_]Uniform {
+                    .{
+                        .view = Matrix.scale(1.0, 1.0, 1.0),
+                        .proj = Matrix.scale(1.0, 1.0, 1.0),
+                    }
+                });
 
                 const descriptor_sets = try descriptor.allocate(device, 0, 1);
 
@@ -1879,7 +1901,7 @@ pub const Vulkan = struct {
                 var vertices = try allocator.alloc(Vertex, object.vertex.items.len);
                 for (0..object.vertex.items.len) |i| {
                     vertices[i] = .{
-                        .position = .{object.vertex.items[i].x, object.vertex.items[i].z, object.vertex.items[i].y},
+                        .position = .{object.vertex.items[i].x, object.vertex.items[i].y, object.vertex.items[i].z},
                         .color = .{1.0, 1.0, 1.0},
                     };
                 }
@@ -2092,6 +2114,7 @@ pub const Vulkan = struct {
                 try game.object_handle.clear_updates();
             } else if (game.camera.changed) {
                 self.global.mapped.view = game.camera.view_matrix();
+                self.global.mapped.proj = game.camera.proj;
 
                 game.camera.changed = false;
             }

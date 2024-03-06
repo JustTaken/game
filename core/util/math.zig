@@ -114,16 +114,14 @@ pub const Matrix = struct {
     }
 
     pub inline fn perspective(fovy: f32, aspect: f32, near: f32, far: f32) [4][4]f32 {
-        const top: f32 = std.math.tan(fovy * 0.5) * near;
-        const bottom = -top;
-        const right = top * aspect;
-        const left = -right;
+        const top = 1.0 / std.math.tan(fovy * 0.5);
+        const r = near / (far - near);
 
         return [4][4]f32 {
-            [4]f32 {2 * near / (right - left), 0.0, 0.0, 0.0},
-            [4]f32 {0.0, -2 * near / (top - bottom), 0.0, 0.0},
-            [4]f32 {(right + left) / (right - left), (top + bottom) / (top - bottom), -(far + near) / (far - near), -1.0},
-            [4]f32 {0.0, 0.0, -2 * far * near / (far - near), 0.0},
+            [4]f32 {top / aspect, 0.0, 0.0, 0.0},
+            [4]f32 {0.0, top, 0.0, 0.0},
+            [4]f32 {0.0, 0.0, r, 1.0},
+            [4]f32 {0.0, 0.0, -far * r, 1.0},
         };
     }
 

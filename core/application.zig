@@ -30,25 +30,22 @@ pub fn Application(comptime renderer: Renderer) type {
         game: Game,
         backend: Backend(T),
         event_system: EventSystem,
-        allocator: std.mem.Allocator,
 
         const Self = @This();
 
         pub fn new() Self {
-            var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-            const allocator = gpa.allocator();
-
-            var game = Game.new() catch {
+            const game = Game.new() catch {
                 logger.log(.Fatal, "Could not create game instance", .{});
 
                 unreachable;
             };
 
-            const event_system = EventSystem.new(&game, allocator) catch {
+            const event_system = EventSystem.new() catch {
                 logger.log(.Fatal, "Could not create event handle system", .{});
 
                 unreachable;
             };
+
 
             const backend = Backend(T).new() catch {
                 logger.log(.Fatal, "Failed to initialize backend", .{});
@@ -62,11 +59,24 @@ pub fn Application(comptime renderer: Renderer) type {
                 .game = game,
                 .backend = backend,
                 .event_system = event_system,
-                .allocator = allocator,
             };
         }
 
         pub fn run(self: *Self) void {
+            self.event_system.add_listener(self.game.camera.handler(), .WindowResize) catch {
+                logger.log(.Fatal,"Could not register camera in event system", .{});
+            };
+
+            self.event_system.add_listener(self.game.object_handle.handler(), .KeyPress) catch {
+                logger.log(.Fatal,"Could not register object handle in event system", .{});
+            };
+
+            self.backend.register_window_emiter(self.event_system.add_emiter(.WindowResize) catch {
+                logger.log(.Fatal, "Failed to register window resize emiter", .{});
+
+                unreachable;
+            });
+
             while (self.event_system.state != .Closing) {
                 if (self.event_system.state != .Suspended) {
                     self.backend.draw(&self.game) catch {
@@ -91,6 +101,8 @@ pub fn Application(comptime renderer: Renderer) type {
         }
 
         pub fn shutdown(self: *Self) void {
+            self.game.shutdown();
+            self.event_system.shutdown();
             self.backend.shutdown();
         }
     };
