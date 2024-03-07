@@ -172,14 +172,28 @@ pub const Camera = struct {
 
     changed: bool = true,
 
+    const y_rotation: [4][4]f32 = .{
+        [4]f32 { 0.0, 0.0, 1.0, 0.0 },
+        [4]f32 { 0.0, 1.0, 0.0, 0.0 },
+        [4]f32 { -1.0, 0.0, 0.0, 0.0 },
+        [4]f32 { 0.0, 0.0, 0.0, 1.0 },
+    };
+
+    const x_rotation: [4][4]f32 = .{
+        [4]f32 { 1.0, 0.0, 0.0, 0.0 },
+        [4]f32 { 0.0, 0.0, -1.0, 0.0 },
+        [4]f32 { 0.0, 1.0, 0.0, 0.0 },
+        [4]f32 { 0.0, 0.0, 0.0, 1.0 },
+    };
+
     const fov: f32 = std.math.pi * 0.25; // 45º -> (45 * std.math.pi / 180.0)
     const near: f32 = 0.1;
     const far: f32 = 10.0;
 
     pub inline fn init(eye: Vec) Camera {
-        const right_vec: Vec = .{.x = 0.707, .y = 0.0, .z = 0.707};
+        const right_vec: Vec = .{.x = 1.0, .y = 0.0, .z = 0.0};
         const up_vec: Vec = .{.x = 0.0, .y = -1.0, .z = 0.0};
-        const direction: Vec = .{.x = -0.707, .y = 0.0, .z = 0.707};
+        const direction: Vec = .{.x = 0.0, .y = 0.0, .z = 1.0};
 
         return .{
             .eye = eye,
@@ -229,6 +243,7 @@ pub const Camera = struct {
             Platform.A => self.left(0.01),
             Platform.S => self.backward(0.01),
             Platform.D => self.right(0.01),
+            Platform.C => self.centralize(),
             else => { },
         }
 
@@ -237,7 +252,9 @@ pub const Camera = struct {
 
     pub fn listen_mouse(ptr: *anyopaque, argument: EventSystem.Argument) bool {
         const self: *Camera = @alignCast(@ptrCast(ptr));
+        // _ = argument;
         self.mouse(argument.f32[0] * 0.001, argument.f32[1] * 0.001);
+        // self.mouse(0, 0);
         return false;
     }
 
@@ -256,8 +273,9 @@ pub const Camera = struct {
     }
 
     fn mouse(self: *Camera, x: f32, y: f32) void {
-        if (x > 10 or y > 10) return;
-        if (x < -10 or y < -10) return;
+        const MAX = 3;
+        if (x > MAX or y > MAX) return;
+        if (x < -MAX or y < -MAX) return;
 
         var direction = Vec {
             .x = self.view[0][2],
@@ -277,17 +295,48 @@ pub const Camera = struct {
             .z = self.view[2][0],
         };
 
-        direction = direction.sum(right_vec.scale(x)).normalize();
-        right_vec = right_vec.sum(right_vec.cross(up_vec).scale(x)).normalize();
+        const floor_direction: Vec = .{
+            .x = right_vec.x,
+            .y = 0.0,
+            .z = right_vec.z,
+        };
 
-        direction = direction.sum(up_vec.scale(y)).normalize();
-        up_vec = up_vec.sum(up_vec.cross(right_vec).scale(-y)).normalize();
+        const wall_direction: Vec = .{
+            .x = 0.0,
+            .y = up_vec.y,
+            .z = up_vec.z,
+        };
+
+        // std.debug.print("ortogonal: {any}\n", .{ortogonal});
+        // std.debug.print("direction: {any}\n", .{direction});
+
+        // std.debug.print("ortogonal with direction: {d}\n", .{ortogonal.dot(direction)});
+        // std.debug.print("ortogonal with right: {d}\n", .{ortogonal.dot(right_vec)});
+        // std.debug.print("direction with right: {d}\n", .{direction.dot(right_vec)});
+        // std.debug.print("ortogonal with floor: {d}\n", .{ortogonal.dot(floor_direction)});
+        // direction = direction.sum(floor_direction.scale(x)).normalize();
+
+        const ortogonal = floor_direction.mult(y_rotation);
+        direction = direction.sum(wall_direction.scale(y).sum(floor_direction.scale(x))).normalize();
+        right_vec = right_vec.sum(ortogonal.scale(-x)).normalize();
+        up_vec = right_vec.cross(direction);
 
         self.view = .{
             [4]f32 { right_vec.x, up_vec.x, direction.x, 0.0 },
             [4]f32 { right_vec.y, up_vec.y, direction.y, 0.0 },
             [4]f32 { right_vec.z, up_vec.z, direction.z, 0.0 },
             [4]f32 { -self.eye.dot(right_vec), -self.eye.dot(up_vec), -self.eye.dot(direction), 1.0 },
+        };
+
+        self.changed = true;
+    }
+
+    fn centralize(self: *Camera) void {
+        self.view = .{
+            [4]f32 { 1.0, 0.0, 0.0, 0.0 },
+            [4]f32 { 0.0, 1.0, 0.0, 0.0 },
+            [4]f32 { 0.0, 0.0, 1.0, 0.0 },
+            [4]f32 { 0.0, 0.0, 0.0, 1.0 },
         };
 
         self.changed = true;

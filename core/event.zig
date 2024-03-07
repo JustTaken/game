@@ -124,6 +124,7 @@ pub const EventSystem = struct {
         Platform.A,
         Platform.S,
         Platform.D,
+        Platform.C,
     };
 
     pub fn new() !EventSystem {
@@ -204,7 +205,6 @@ pub const EventSystem = struct {
         }
 
         if (cursor.changed) {
-            // self.fire(Event.Type.MouseMove, .{ .f32 = .{ 0, 0 } });
             self.fire(Event.Type.MouseMove, .{ .f32 = .{ cursor.x, cursor.y } });
 
             cursor.changed = false;

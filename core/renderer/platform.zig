@@ -13,16 +13,17 @@ pub const Platform = struct {
     pub const Window = c.GLFWwindow;
     pub const Press = c.GLFW_PRESS;
 
-    pub const Right: u32   = @as(u32, @intCast(c.GLFW_KEY_RIGHT));
-    pub const Left: u32    = @as(u32, @intCast(c.GLFW_KEY_LEFT));
-    pub const Down: u32    = @as(u32, @intCast(c.GLFW_KEY_DOWN));
-    pub const Up: u32      = @as(u32, @intCast(c.GLFW_KEY_UP));
-    pub const W: u32       = @as(u32, @intCast(c.GLFW_KEY_W));
-    pub const A: u32       = @as(u32, @intCast(c.GLFW_KEY_A));
-    pub const S: u32       = @as(u32, @intCast(c.GLFW_KEY_S));
-    pub const D: u32       = @as(u32, @intCast(c.GLFW_KEY_D));
-    pub const Control: u32 = @as(u32, @intCast(c.GLFW_KEY_LEFT_CONTROL));
-    pub const Space: u32   = @as(u32, @intCast(c.GLFW_KEY_SPACE));
+    pub const Right = c.GLFW_KEY_RIGHT;
+    pub const Left = c.GLFW_KEY_LEFT;
+    pub const Down = c.GLFW_KEY_DOWN;
+    pub const Up = c.GLFW_KEY_UP;
+    pub const W = c.GLFW_KEY_W;
+    pub const A = c.GLFW_KEY_A;
+    pub const S = c.GLFW_KEY_S;
+    pub const D = c.GLFW_KEY_D;
+    pub const C = c.GLFW_KEY_C;
+    pub const Control = c.GLFW_KEY_LEFT_CONTROL;
+    pub const Space = c.GLFW_KEY_SPACE;
 
     pub fn init() !void {
         if (c.glfwInit() != c.GLFW_TRUE) {
