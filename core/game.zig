@@ -24,11 +24,13 @@ pub const Game = struct {
 
     pub fn new() !Game {
         var object_handle = try ObjectHandle.new();
-        try object_handle.add_object(.{
-            .model = Matrix.scale(0.3, 0.3, 0.3),
-            .color = Matrix.scale(0.1, 0.9, 0.3),
-            .typ = .Plane,
-        });
+        for (0..10) |i| {
+            try object_handle.add_object(.{
+                .model = Matrix.translate(0.0, 0.0, @floatFromInt(i)),
+                .color = Matrix.scale(0.1, @as(f32, @floatFromInt(i)) * 0.1, 0.3),
+                .typ = .Cube,
+            });
+        }
 
         return .{
             .object_handle = object_handle,
@@ -42,8 +44,6 @@ pub const Game = struct {
 
     pub fn update(self: *Game) !void {
         _ = self;
-
-        // std.debug.print("proj: {d}\n", .{self.camera.proj});
     }
 
     pub fn shutdown(_: *Game) void {
@@ -67,6 +67,7 @@ pub const ObjectHandle = struct {
             .data = .new,
             .id = self.objects.items.len,
         });
+
         try self.objects.push(object);
     }
 
@@ -74,7 +75,7 @@ pub const ObjectHandle = struct {
         try self.to_update.clear();
     }
 
-    pub fn handler(self: *ObjectHandle) EventSystem.Event.Listener {
+    pub inline fn handler(self: *ObjectHandle) EventSystem.Event.Listener {
         return .{
             .ptr = self,
             .listen_fn = listen,
@@ -85,15 +86,32 @@ pub const ObjectHandle = struct {
         const self: *ObjectHandle = @ptrCast(@alignCast(ptr));
 
         switch (argument.i32[0]) {
-            Platform.KeyF => {
+            Platform.Right => {
                 self.update_object(.{
-                    .data = .{
-                        .model = Matrix.mult(self.objects.items[0].model, Matrix.translate(0.0, 0.0, 0.01)),
-                    },
+                    .data = .{ .model = Matrix.mult(self.objects.items[0].model, Matrix.translate(0.1, 0.0, 0.0)), },
                     .id = 0,
-                }) catch {
-                    return false;
-                };
+                }) catch { return false; };
+            },
+
+            Platform.Left => {
+                self.update_object(.{
+                    .data = .{ .model = Matrix.mult(self.objects.items[0].model, Matrix.translate(-0.1, 0.0, 0.0)), },
+                    .id = 0,
+                }) catch { return false; };
+            },
+
+            Platform.Up => {
+                self.update_object(.{
+                    .data = .{ .model = Matrix.mult(self.objects.items[0].model, Matrix.translate(0.0, 0.1, 0.0)), },
+                    .id = 0,
+                }) catch { return false; };
+            },
+
+            Platform.Down => {
+                self.update_object(.{
+                    .data = .{ .model = Matrix.mult(self.objects.items[0].model, Matrix.translate(0.0, -0.1, 0.0)), },
+                    .id = 0,
+                }) catch { return false; };
             },
             else => {},
         }
@@ -133,14 +151,6 @@ pub const ObjectHandle = struct {
                 .typ = typ,
             };
         }
-
-        fn default() Object {
-            return .{
-                .model = Matrix.scale(0.5, 0.5, 0.5),
-                .typ = ObjectType.Plane,
-                .color = Matrix.scale(1.0, 1.0, 1.0),
-            };
-        }
     };
 
     const Update = struct {
@@ -157,120 +167,285 @@ pub const ObjectHandle = struct {
 
 pub const Camera = struct {
     proj: [4][4]f32,
-    up: Vec,
+    view: [4][4]f32,
     eye: Vec,
-    center: Vec,
 
     changed: bool = true,
 
+    const fov: f32 = std.math.pi * 0.25; // 45º -> (45 * std.math.pi / 180.0)
+    const near: f32 = 0.1;
+    const far: f32 = 10.0;
+
     pub inline fn init(eye: Vec) Camera {
+        const right_vec: Vec = .{.x = 0.707, .y = 0.0, .z = 0.707};
+        const up_vec: Vec = .{.x = 0.0, .y = -1.0, .z = 0.0};
+        const direction: Vec = .{.x = -0.707, .y = 0.0, .z = 0.707};
+
         return .{
-            .proj = Matrix.perspective(std.math.pi / 4.0, @as(f32, @floatFromInt(configuration.default_width)) / @as(f32, @floatFromInt(configuration.default_height)), 0.1, 10.0),
             .eye = eye,
-            .center = .{
-                .x = 0.0,
-                .y = 0.0,
-                .z = 0.0,
-            },
-            .up = .{
-                .x = 0.0,
-                .y = -1.0,
-                .z = 0.0,
+            .proj = Matrix.perspective(
+                fov,
+                @as(f32, @floatFromInt(configuration.default_width)) / @as(f32, @floatFromInt(configuration.default_height)),
+                near,
+                far
+            ),
+            .view = .{
+                [4]f32 {right_vec.x, up_vec.x, direction.x, 0.0},
+                [4]f32 {right_vec.y, up_vec.y, direction.y, 0.0},
+                [4]f32 {right_vec.z, up_vec.z, direction.z, 0.0},
+                [4]f32 {-eye.dot(right_vec), -eye.dot(up_vec), -eye.dot(direction), 1.0},
             },
         };
     }
 
-    pub fn handler(self: *Camera) EventSystem.Event.Listener {
+    pub fn handler_resize(self: *Camera) EventSystem.Event.Listener {
         return .{
             .ptr = self,
-            .listen_fn = listen,
+            .listen_fn = listen_resize,
         };
     }
 
-    pub fn listen(ptr: *anyopaque, argument: EventSystem.Argument) bool {
+    pub fn handler_keyboard(self: *Camera) EventSystem.Event.Listener {
+        return .{
+            .ptr= self,
+            .listen_fn = listen_keyboard,
+        };
+    }
+
+    pub fn handler_mouse(self: *Camera) EventSystem.Event.Listener {
+        return .{
+            .ptr = self,
+            .listen_fn = listen_mouse,
+        };
+    }
+
+    pub fn listen_keyboard(ptr: *anyopaque, argument: EventSystem.Argument) bool {
         const self: *Camera = @alignCast(@ptrCast(ptr));
 
-        self.proj = Matrix.perspective(std.math.pi / 4.0, @as(f32, @floatFromInt(argument.u32[0])) / @as(f32, @floatFromInt(argument.u32[1])), 0.1, 10.0);
+        switch (argument.i32[0]) {
+            Platform.Space => self.up(0.01),
+            Platform.Control => self.down(0.01),
+            Platform.W => self.foward(0.01),
+            Platform.A => self.left(0.01),
+            Platform.S => self.backward(0.01),
+            Platform.D => self.right(0.01),
+            else => { },
+        }
+
+        return false;
+    }
+
+    pub fn listen_mouse(ptr: *anyopaque, argument: EventSystem.Argument) bool {
+        const self: *Camera = @alignCast(@ptrCast(ptr));
+        self.mouse(argument.f32[0] * 0.001, argument.f32[1] * 0.001);
+        return false;
+    }
+
+    pub fn listen_resize(ptr: *anyopaque, argument: EventSystem.Argument) bool {
+        const self: *Camera = @alignCast(@ptrCast(ptr));
+
+        self.proj = Matrix.perspective(
+            fov,
+            @as(f32, @floatFromInt(argument.u32[0])) / @as(f32, @floatFromInt(argument.u32[1])),
+            near,
+            far
+        );
         self.changed = true;
 
         return false;
     }
 
-    pub inline fn view_matrix(self: *Camera) [4][4]f32 {
-        const direction = Vec.sub(self.eye, self.center).normalize();
-        const right = Vec.cross(direction, self.up).normalize();
-        self.up = Vec.cross(right, direction);
+    fn mouse(self: *Camera, x: f32, y: f32) void {
+        if (x > 10 or y > 10) return;
+        if (x < -10 or y < -10) return;
 
-        return [4][4]f32 {
-            [4]f32 {right.x, self.up.x, direction.x, 0.0},
-            [4]f32 {right.y, self.up.y, direction.y, 0.0},
-            [4]f32 {right.z, self.up.z, direction.z, 0.0},
-            [4]f32 {-self.eye.x, -self.eye.y, -self.eye.z, 1.0},
+        var direction = Vec {
+            .x = self.view[0][2],
+            .y = self.view[1][2],
+            .z = self.view[2][2],
         };
-    }
 
-    fn mouse(self: *Camera, x: i32, y: i32) void {
-        var direction = Vec.sub(self.eye, self.center);
-        const right = Vec.cross(direction, self.up);
+        var up_vec: Vec = .{
+            .x = self.view[0][1],
+            .y = self.view[1][1],
+            .z = self.view[2][1],
+        };
 
-        const rotate = Matrix.mult(
-            Matrix.rotate(
-                @as(f32, @floatFromInt(x)) * std.math.pi * 0.1 / -180.0,
-                self.up.normalize()
-            ),
-            Matrix.rotate(
-                @as(f32, @floatFromInt(y)) * std.math.pi * 0.1 / -180.0,
-                right.normalize()
-            )
-        );
+        var right_vec = Vec {
+            .x = self.view[0][0],
+            .y = self.view[1][0],
+            .z = self.view[2][0],
+        };
 
-        direction = Vec.mult(
-            direction,
-            rotate
-        );
+        direction = direction.sum(right_vec.scale(x)).normalize();
+        right_vec = right_vec.sum(right_vec.cross(up_vec).scale(x)).normalize();
 
-        self.center = Vec.sum(self.eye, direction);
-        self.up = Vec.cross(right, direction).normalize();
+        direction = direction.sum(up_vec.scale(y)).normalize();
+        up_vec = up_vec.sum(up_vec.cross(right_vec).scale(-y)).normalize();
+
+        self.view = .{
+            [4]f32 { right_vec.x, up_vec.x, direction.x, 0.0 },
+            [4]f32 { right_vec.y, up_vec.y, direction.y, 0.0 },
+            [4]f32 { right_vec.z, up_vec.z, direction.z, 0.0 },
+            [4]f32 { -self.eye.dot(right_vec), -self.eye.dot(up_vec), -self.eye.dot(direction), 1.0 },
+        };
+
         self.changed = true;
     }
 
-    fn move_foward(self: *Camera, speed: f32) void {
-        const delta = Vec.sub(self.eye, self.center).normalize().scale(speed * 10.0);
-        self.eye = Vec.sum(delta, self.eye);
-        self.center = Vec.sum(delta, self.center);
+    fn foward(self: *Camera, speed: f32) void {
+        self.eye.x += self.view[0][2] * speed;
+        self.eye.y += self.view[1][2] * speed;
+        self.eye.z += self.view[2][2] * speed;
+
+        self.view[3][0] = -self.eye.dot(.{
+            .x = self.view[0][0],
+            .y = self.view[1][0],
+            .z = self.view[2][0]
+        });
+
+        self.view[3][1] = -self.eye.dot(.{
+            .x = self.view[0][1],
+            .y = self.view[1][1],
+            .z = self.view[2][1]
+        });
+
+        self.view[3][2] = -self.eye.dot(.{
+            .x = self.view[0][2],
+            .y = self.view[1][2],
+            .z = self.view[2][2]
+        });
+
         self.changed = true;
     }
 
-    fn move_backward(self: *Camera, speed: f32) void {
-        const delta = Vec.sub(self.eye, self.center).normalize().scale(speed * 10.0);
-        self.eye = Vec.sub(delta, self.eye);
-        self.center = Vec.sum(delta, self.center);
+    fn backward(self: *Camera, speed: f32) void {
+        self.eye.x -= self.view[0][2] * speed;
+        self.eye.y -= self.view[1][2] * speed;
+        self.eye.z -= self.view[2][2] * speed;
+
+        self.view[3][0] = -self.eye.dot(.{
+            .x = self.view[0][0],
+            .y = self.view[1][0],
+            .z = self.view[2][0]
+        });
+
+        self.view[3][1] = -self.eye.dot(.{
+            .x = self.view[0][1],
+            .y = self.view[1][1],
+            .z = self.view[2][1]
+        });
+
+        self.view[3][2] = -self.eye.dot(.{
+            .x = self.view[0][2],
+            .y = self.view[1][2],
+            .z = self.view[2][2]
+        });
+
         self.changed = true;
     }
 
-    fn move_right(self: *Camera, speed: f32) void {
-        const delta = Vec.cross(Vec.sub(self.eye, self.center), self.up).normalize().scale(speed * 10.0);
-        self.eye = Vec.sum(delta, self.eye);
-        self.center = Vec.sum(delta, self.center);
+    fn right(self: *Camera, speed: f32) void {
+        self.eye.x += self.view[0][0] * speed;
+        self.eye.y += self.view[1][0] * speed;
+        self.eye.z += self.view[2][0] * speed;
+
+        self.view[3][0] = -self.eye.dot(.{
+            .x = self.view[0][0],
+            .y = self.view[1][0],
+            .z = self.view[2][0]
+        });
+
+        self.view[3][1] = -self.eye.dot(.{
+            .x = self.view[0][1],
+            .y = self.view[1][1],
+            .z = self.view[2][1]
+        });
+
+        self.view[3][2] = -self.eye.dot(.{
+            .x = self.view[0][2],
+            .y = self.view[1][2],
+            .z = self.view[2][2]
+        });
+
         self.changed = true;
     }
 
-    fn move_left(self: *Camera, speed: f32) void {
-        const delta = Vec.cross(Vec.sub(self.eye, self.center), self.up).normalize().scale(speed * 10.0);
-        self.eye = Vec.sub(delta, self.eye);
-        self.center = Vec.sub(delta, self.center);
+    fn left(self: *Camera, speed: f32) void {
+        self.eye.x -= self.view[0][0] * speed;
+        self.eye.y -= self.view[1][0] * speed;
+        self.eye.z -= self.view[2][0] * speed;
+
+        self.view[3][0] = -self.eye.dot(.{
+            .x = self.view[0][0],
+            .y = self.view[1][0],
+            .z = self.view[2][0]
+        });
+
+        self.view[3][1] = -self.eye.dot(.{
+            .x = self.view[0][1],
+            .y = self.view[1][1],
+            .z = self.view[2][1]
+        });
+
+        self.view[3][2] = -self.eye.dot(.{
+            .x = self.view[0][2],
+            .y = self.view[1][2],
+            .z = self.view[2][2]
+        });
+
         self.changed = true;
     }
 
-    fn move_up(self: *Camera, speed: f32) void {
-        self.eye = Vec.sub(self.up.normalize().scale(speed), self.eye);
-        self.center = Vec.sub(self.up.normalize().scale(speed), self.center);
+    fn up(self: *Camera, speed: f32) void {
+        self.eye.x -= self.view[0][1] * speed;
+        self.eye.y -= self.view[1][1] * speed;
+        self.eye.z -= self.view[2][1] * speed;
+
+        self.view[3][0] = -self.eye.dot(.{
+            .x = self.view[0][0],
+            .y = self.view[1][0],
+            .z = self.view[2][0]
+        });
+
+        self.view[3][1] = -self.eye.dot(.{
+            .x = self.view[0][1],
+            .y = self.view[1][1],
+            .z = self.view[2][1]
+        });
+
+        self.view[3][2] = -self.eye.dot(.{
+            .x = self.view[0][2],
+            .y = self.view[1][2],
+            .z = self.view[2][2]
+        });
+
         self.changed = true;
     }
 
-    fn move_down(self: *Camera, speed: f32) void {
-        self.eye = Vec.sum(self.up.normalize().scale(speed), self.eye);
-        self.center = Vec.sum(self.up.normalize().scale(speed), self.center);
+    fn down(self: *Camera, speed: f32) void {
+        self.eye.x += self.view[0][1] * speed;
+        self.eye.y += self.view[1][1] * speed;
+        self.eye.z += self.view[2][1] * speed;
+
+        self.view[3][0] = -self.eye.dot(.{
+            .x = self.view[0][0],
+            .y = self.view[1][0],
+            .z = self.view[2][0]
+        });
+
+        self.view[3][1] = -self.eye.dot(.{
+            .x = self.view[0][1],
+            .y = self.view[1][1],
+            .z = self.view[2][1]
+        });
+
+        self.view[3][2] = -self.eye.dot(.{
+            .x = self.view[0][2],
+            .y = self.view[1][2],
+            .z = self.view[2][2]
+        });
+
         self.changed = true;
     }
 };

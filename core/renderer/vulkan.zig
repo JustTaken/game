@@ -293,9 +293,9 @@ pub const Vulkan = struct {
             get_buffer_memory_requirements: *const fn (c.VkDevice, c.VkBuffer, *c.VkMemoryRequirements) callconv(.C) void,
             bind_buffer_memory: *const fn (c.VkDevice, c.VkBuffer, c.VkDeviceMemory, u64) callconv(.C) i32,
             acquire_next_image: *const fn (c.VkDevice, c.VkSwapchainKHR, u64, c.VkSemaphore, c.VkFence, *u32) callconv(.C) i32,
-            create_swapchain: *const fn (c.VkDevice, *const c.VkSwapchainCreateInfoKHR, ?*const c.VkAllocationCallbacks, *c.VkSwapchainKHR) callconv(.C) i32,
             wait_for_fences : *const fn (c.VkDevice, u32, *const c.VkFence, u32, u64) callconv(.C) i32,
             reset_fences: *const fn (c.VkDevice, u32, *const c.VkFence) callconv(.C) i32,
+            create_swapchain: *const fn (c.VkDevice, *const c.VkSwapchainCreateInfoKHR, ?*const c.VkAllocationCallbacks, *c.VkSwapchainKHR) callconv(.C) i32,
             create_image: *const fn (c.VkDevice, *const c.VkImageCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkImage) callconv(.C) i32,
             create_shader_module: *const fn (c.VkDevice, *const c.VkShaderModuleCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkShaderModule) callconv(.C) i32,
             create_pipeline_layout: *const fn (c.VkDevice, *const c.VkPipelineLayoutCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkPipelineLayout) callconv(.C) i32,
@@ -612,6 +612,12 @@ pub const Vulkan = struct {
             return view;
         }
 
+        fn create_swapchain(self: Device, info: c.VkSwapchainCreateInfoKHR) !c.VkSwapchainKHR {
+            var handle: c.VkSwapchainKHR = undefined;
+            try check(self.dispatch.create_swapchain(self.handle, &info, null, &handle));
+
+            return handle;
+        }
         fn create_shader_module(self: Device, info: c.VkShaderModuleCreateInfo) !c.VkShaderModule {
             var shader_module: c.VkShaderModule = undefined;
             try check(self.dispatch.create_shader_module(self.handle, &info, null, &shader_module));
@@ -885,30 +891,13 @@ pub const Vulkan = struct {
         handle: c.VkSwapchainKHR,
         extent: c.VkExtent2D,
         image_views: []c.VkImageView,
-        format: c.VkFormat,
         depth_format: c.VkFormat,
         framebuffers: []c.VkFramebuffer,
         arena: std.heap.ArenaAllocator,
 
-        fn new(device: Device, instance: Instance, window: Window, opt_arena: ?std.heap.ArenaAllocator) !Swapchain {
+        fn new(device: Device, instance: Instance, window: Window, graphics_pipeline: GraphicsPipeline, opt_arena: ?std.heap.ArenaAllocator) !Swapchain {
             var arena = opt_arena orelse std.heap.ArenaAllocator.init(std.heap.page_allocator);
             const allocator = arena.allocator();
-
-            const formats = instance.get_physical_device_surface_formats(device.physical_device, window.surface, allocator) catch |e| {
-                logger.log(.Error, "Failed to list surface formats", .{});
-
-                return e;
-            };
-
-            const format = blk: for (formats) |format| {
-                if (format.format == c.VK_FORMAT_B8G8R8A8_SRGB and format.colorSpace == c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-                    break :blk format;
-                }
-            } else {
-                logger.log(.Warn, "Could not find a good surface format falling back to first in list", .{});
-
-                break :blk formats[0];
-            };
 
             const present_mode = c.VK_PRESENT_MODE_FIFO_KHR;
 
@@ -947,13 +936,12 @@ pub const Vulkan = struct {
                 return e;
             };
 
-            var handle: c.VkSwapchainKHR = undefined;
-            try check(device.dispatch.create_swapchain(device.handle, &.{
+            const handle = device.create_swapchain(.{
                 .sType = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
                 .surface = window.surface,
                 .minImageCount = image_count,
-                .imageFormat = format.format,
-                .imageColorSpace = format.colorSpace,
+                .imageFormat = graphics_pipeline.format.format,
+                .imageColorSpace = graphics_pipeline.format.colorSpace,
                 .imageExtent = extent,
                 .imageSharingMode = if (uniques_queue_family_index.items.len == 1) c.VK_SHARING_MODE_EXCLUSIVE else c.VK_SHARING_MODE_CONCURRENT,
                 .presentMode = present_mode,
@@ -965,7 +953,11 @@ pub const Vulkan = struct {
                 .queueFamilyIndexCount = @as(u32, @intCast(uniques_queue_family_index.items.len)),
                 .pQueueFamilyIndices = uniques_queue_family_index.items.ptr,
                 .oldSwapchain = null,
-                }, null, &handle));
+            }) catch |e| {
+                logger.log(.Debug, "Failed to create sawpchain", .{});
+
+                return e;
+            };
 
             const images = device.get_swapchain_images(handle, allocator) catch |e| {
                 logger.log(.Error, "Failed to get swapchain images", .{});
@@ -983,7 +975,7 @@ pub const Vulkan = struct {
                 image_views[i] = device.create_image_view(.{
                     .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
                     .image = images[i],
-                    .format = format.format,
+                    .format = graphics_pipeline.format.format,
                     .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
                     .subresourceRange = .{
                         .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
@@ -1023,13 +1015,34 @@ pub const Vulkan = struct {
                 return error.DepthFormat;
             };
 
+            var framebuffers = allocator.alloc(c.VkFramebuffer, image_views.len) catch {
+                logger.log(.Error, "Out of memory",  .{});
+
+                return error.OutOfMemory;
+            };
+            for (0..image_views.len) |i| {
+                framebuffers[i] = device.create_framebuffer(.{
+                    .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+                    .renderPass = graphics_pipeline.render_pass,
+                    .attachmentCount = 1,
+                    .pAttachments = &image_views[i],
+                    .width = extent.width,
+                    .height = extent.height,
+                    .layers = 1,
+                }) catch |e| {
+                    logger.log(.Error, "Failed to crate frambuffer", .{});
+
+                    return e;
+                };
+            }
+
+
             return .{
                 .handle = handle,
                 .image_views = image_views,
-                .format = format.format,
                 .depth_format = depth_format,
                 .extent = extent,
-                .framebuffers = try allocator.alloc(c.VkFramebuffer, images.len),
+                .framebuffers = framebuffers,
                 .arena = arena,
             };
         }
@@ -1042,7 +1055,7 @@ pub const Vulkan = struct {
             self: *Swapchain,
             device: Device,
             instance: Instance,
-            pipeline: *GraphicsPipeline,
+            pipeline: GraphicsPipeline,
             window: *Window,
             command_pool: *CommandPool,
         ) !void {
@@ -1058,7 +1071,7 @@ pub const Vulkan = struct {
                     window.emiter.value = .{
                         .u32 = .{ window.width, window.height },
                     };
-                    // logger.log(.Debug, "changed, {d}", .{window.emiter.value.u32});
+
                     window.emiter.changed = true;
                 } else if ((Platform.get_time() - window.last_resize) >= 0.5) {
                     break;
@@ -1067,36 +1080,16 @@ pub const Vulkan = struct {
                 std.time.sleep(250000);
             }
 
-            logger.log(.Debug, "Recreating swapchain", .{});
-
             self.destroy(device);
-            const new_swapchain = try Swapchain.new(device, instance, window.*, self.arena);
-            const allocator = self.arena.allocator();
+            const new_swapchain = try Swapchain.new(device, instance, window.*, pipeline, self.arena);
 
             self.handle = new_swapchain.handle;
             self.image_views = new_swapchain.image_views;
-            self.format = new_swapchain.format;
             self.depth_format = new_swapchain.depth_format;
             self.extent = new_swapchain.extent;
-            self.framebuffers = try allocator.alloc(c.VkFramebuffer, new_swapchain.image_views.len);
+            self.framebuffers = new_swapchain.framebuffers;
 
-            for (0..new_swapchain.image_views.len) |i| {
-                self.framebuffers[i] = device.create_framebuffer(.{
-                    .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-                    .renderPass = pipeline.render_pass,
-                    .attachmentCount = 1,
-                    .pAttachments = &new_swapchain.image_views[i],
-                    .width = new_swapchain.extent.width,
-                    .height = new_swapchain.extent.height,
-                    .layers = 1,
-                }) catch |e| {
-                    logger.log(.Error, "Failed to crate frambuffer", .{});
-
-                    return e;
-                };
-
-                command_pool.buffers.items[i].is_valid = false;
-            }
+            command_pool.invalidate();
         }
 
         fn acquire_next_image(self: Swapchain, device: Device, sync: Sync) !u32 {
@@ -1182,6 +1175,7 @@ pub const Vulkan = struct {
         layout: c.VkPipelineLayout,
         render_pass: c.VkRenderPass,
         descriptor: Descriptor,
+        format: c.VkSurfaceFormatKHR,
 
         const Descriptor = struct {
             pools: ArrayList(Pool),
@@ -1297,7 +1291,7 @@ pub const Vulkan = struct {
             }
         };
 
-        fn new(device: Device, swapchain: Swapchain, allocator: std.mem.Allocator) !GraphicsPipeline {
+        fn new(device: Device, instance: Instance, window: Window, allocator: std.mem.Allocator) !GraphicsPipeline {
             const vert_code = Io.read_file("assets/vert.spv", allocator) catch |e| {
                 logger.log(.Error, "Could not read vertex shader byte code", .{});
 
@@ -1376,14 +1370,17 @@ pub const Vulkan = struct {
                 .pViewports = &.{
                     .x = 0.0,
                     .y = 0.0,
-                    .width = @as(f32, @floatFromInt(swapchain.extent.width)),
-                    .height = @as(f32, @floatFromInt(swapchain.extent.height)),
+                    .width = @as(f32, @floatFromInt(configuration.default_width)),
+                    .height = @as(f32, @floatFromInt(configuration.default_height)),
                     .minDepth = 0.0,
                     .maxDepth = 1.0,
                 },
                 .pScissors = &.{
                     .offset = .{.x = 0, .y = 0},
-                    .extent = swapchain.extent,
+                    .extent = .{
+                        .width = configuration.default_width,
+                        .height = configuration.default_height,
+                    }
                 },
             };
 
@@ -1394,7 +1391,7 @@ pub const Vulkan = struct {
                 .polygonMode = c.VK_POLYGON_MODE_FILL,
                 .lineWidth = 1.0,
                 .cullMode = c.VK_CULL_MODE_BACK_BIT,
-                .frontFace = c.VK_FRONT_FACE_COUNTER_CLOCKWISE,
+                .frontFace = c.VK_FRONT_FACE_CLOCKWISE,
                 .depthBiasEnable = c.VK_FALSE,
                 .depthBiasConstantFactor = 0.0,
                 .depthBiasClamp = 0.0,
@@ -1457,11 +1454,27 @@ pub const Vulkan = struct {
             var descriptor = try Descriptor.new(16);
             _ = try descriptor.add_layout(descriptor_set_layout);
 
+            const formats = instance.get_physical_device_surface_formats(device.physical_device, window.surface, allocator) catch |e| {
+                logger.log(.Error, "Failed to list surface formats", .{});
+
+                return e;
+            };
+
+            const format = blk: for (formats) |format| {
+                if (format.format == c.VK_FORMAT_B8G8R8A8_SRGB and format.colorSpace == c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                    break :blk format;
+                }
+            } else {
+                logger.log(.Warn, "Could not find a good surface format falling back to first in list", .{});
+
+                break :blk formats[0];
+            };
+
             const render_pass = device.create_render_pass(.{
                 .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
                 .attachmentCount = 1,
                 .pAttachments = &.{
-                    .format = swapchain.format,
+                    .format = format.format,
                     .samples = c.VK_SAMPLE_COUNT_1_BIT,
                     .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
                     .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
@@ -1516,27 +1529,12 @@ pub const Vulkan = struct {
                     return e;
             };
 
-            for (0..swapchain.image_views.len) |i| {
-                swapchain.framebuffers[i] = device.create_framebuffer(.{
-                    .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-                    .renderPass = render_pass,
-                    .attachmentCount = 1,
-                    .pAttachments = &swapchain.image_views[i],
-                    .width = swapchain.extent.width,
-                    .height = swapchain.extent.height,
-                    .layers = 1,
-                }) catch |e| {
-                    logger.log(.Error, "Failed to crate frambuffer", .{});
-
-                    return e;
-                };
-            }
-
             return .{
                 .handle = handle,
                 .layout = layout,
                 .render_pass = render_pass,
                 .descriptor = descriptor,
+                .format = format,
             };
         }
 
@@ -1721,8 +1719,8 @@ pub const Vulkan = struct {
             descriptor_set: c.VkDescriptorSet,
 
             const Uniform = struct {
-                proj: [4][4]f32,
                 view: [4][4]f32,
+                proj: [4][4]f32,
             };
 
             fn new(
@@ -1746,7 +1744,7 @@ pub const Vulkan = struct {
                 try device.map_memory(buffer.memory, Uniform, 1, @ptrCast(&mapped));
                 @memcpy(@as([*]Uniform, @ptrCast(@alignCast(mapped))), &[_]Uniform {
                     .{
-                        .view = Matrix.scale(1.0, 1.0, 1.0),
+                        .view = Matrix.scale(1.0, -1.0, 1.0),
                         .proj = Matrix.scale(1.0, 1.0, 1.0),
                     }
                 });
@@ -1899,9 +1897,9 @@ pub const Vulkan = struct {
                 );
 
                 var vertices = try allocator.alloc(Vertex, object.vertex.items.len);
-                for (0..object.vertex.items.len) |i| {
+                for (object.vertex.items, 0..) |vert, i| {
                     vertices[i] = .{
-                        .position = .{object.vertex.items[i].x, object.vertex.items[i].y, object.vertex.items[i].z},
+                        .position = .{vert.x, vert.y, vert.z},
                         .color = .{1.0, 1.0, 1.0},
                     };
                 }
@@ -2104,7 +2102,7 @@ pub const Vulkan = struct {
                             game.object_handle.objects.items[update.id].id = try self.models[k].add_item(device, memory_properties, .{
                                 .model = object.model,
                                 .color = object.color,
-                                }, descriptor, allocator);
+                            }, descriptor, allocator);
 
                             command_pool.invalidate();
                         },
@@ -2113,10 +2111,9 @@ pub const Vulkan = struct {
 
                 try game.object_handle.clear_updates();
             } else if (game.camera.changed) {
-                self.global.mapped.view = game.camera.view_matrix();
-                self.global.mapped.proj = game.camera.proj;
-
                 game.camera.changed = false;
+                self.global.mapped.view = game.camera.view;
+                self.global.mapped.proj = game.camera.proj;
             }
         }
 
@@ -2155,14 +2152,14 @@ pub const Vulkan = struct {
             return e;
         };
 
-        const swapchain = Swapchain.new(device, instance, window, null) catch |e| {
-            logger.log(.Error, "Failed to create swapchain", .{});
+        var graphics_pipeline = GraphicsPipeline.new(device, instance, window, SNAP_ALLOCATOR) catch |e| {
+            logger.log(.Error, "Failed to create graphics_pipeline", .{});
 
             return e;
         };
 
-        var graphics_pipeline = GraphicsPipeline.new(device, swapchain, SNAP_ALLOCATOR) catch |e| {
-            logger.log(.Error, "Failed to create graphics_pipeline", .{});
+        const swapchain = Swapchain.new(device, instance, window, graphics_pipeline, null) catch |e| {
+            logger.log(.Error, "Failed to create swapchain", .{});
 
             return e;
         };
@@ -2220,7 +2217,7 @@ pub const Vulkan = struct {
                 self.swapchain.recreate(
                     self.device,
                     self.instance,
-                    &self.graphics_pipeline,
+                    self.graphics_pipeline,
                     &self.window,
                     &self.command_pool
                 ) catch |e2| {
@@ -2228,6 +2225,8 @@ pub const Vulkan = struct {
 
                     return e2;
                 };
+
+            logger.log(.Debug, "Swapchain recreated", .{});
 
                 return;
             } else {
@@ -2239,11 +2238,19 @@ pub const Vulkan = struct {
 
         self.swapchain.queue_pass(self.device, self.graphics_pipeline, &self.command_pool, self.sync, self.data, image_index) catch |e| {
             if (Swapchain.has_to_recreate(e)) {
-                self.swapchain.recreate(self.device, self.instance, &self.graphics_pipeline, &self.window, &self.command_pool) catch |e2| {
-                    logger.log(.Error, "Recreate swapchain failed, quiting application", .{});
+                self.swapchain.recreate(
+                    self.device,
+                    self.instance,
+                    self.graphics_pipeline,
+                    &self.window,
+                    &self.command_pool
+                ) catch |e2| {
+                    logger.log(.Error, "Swapchain recreation failed, quiting application", .{});
 
                     return e2;
                 };
+
+                logger.log(.Debug, "Swapchain recreated", .{});
 
                 return;
             } else {
@@ -2254,7 +2261,7 @@ pub const Vulkan = struct {
         };
 
         self.sync.wait(self.device) catch {
-            logger.log(.Warn, "CPU did not wait for the next frame", .{});
+            logger.log(.Warn, "CPU did not wait for next frame", .{});
         };
     }
 

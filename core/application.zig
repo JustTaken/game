@@ -63,20 +63,7 @@ pub fn Application(comptime renderer: Renderer) type {
         }
 
         pub fn run(self: *Self) void {
-            self.event_system.add_listener(self.game.camera.handler(), .WindowResize) catch {
-                logger.log(.Fatal,"Could not register camera in event system", .{});
-            };
-
-            self.event_system.add_listener(self.game.object_handle.handler(), .KeyPress) catch {
-                logger.log(.Fatal,"Could not register object handle in event system", .{});
-            };
-
-            self.backend.register_window_emiter(self.event_system.add_emiter(.WindowResize) catch {
-                logger.log(.Fatal, "Failed to register window resize emiter", .{});
-
-                unreachable;
-            });
-
+            self.event_system.init(self.backend.window, &self.game, T, &self.backend);
             while (self.event_system.state != .Closing) {
                 if (self.event_system.state != .Suspended) {
                     self.backend.draw(&self.game) catch {

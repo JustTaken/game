@@ -436,13 +436,13 @@ pub const Object = struct {
                         }
                     }
 
-                    try index_array.push(numbers[6]);
+                    try index_array.push(numbers[0]);
                     try index_array.push(numbers[3]);
-                    try index_array.push(numbers[0]);
-
-                    try index_array.push(numbers[0]);
-                    try index_array.push(numbers[9]);
                     try index_array.push(numbers[6]);
+
+                    try index_array.push(numbers[6]);
+                    try index_array.push(numbers[9]);
+                    try index_array.push(numbers[0]);
                 }
             } else {
                 break;

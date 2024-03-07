@@ -4,13 +4,15 @@ const _config = @import("util/configuration.zig");
 const _platform  = @import("renderer/platform.zig");
 const _game = @import("game.zig");
 const _collections = @import("util/collections.zig");
+const _backend = @import("renderer/backend.zig");
 
 const Platform = _platform.Platform;
 const State = _config.State;
-const Game = _game.Game;
 const ArrayList = _collections.ArrayList;
 const logger = _config.Configuration.logger;
 const ObjectHandle = _game.ObjectHandle;
+const Game = _game.Game;
+const Backend = _backend.Backend;
 
 var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 const allocator = arena.allocator();
@@ -20,6 +22,18 @@ pub const EventSystem = struct {
     state: State,
     clock: f64,
     arena: std.heap.ArenaAllocator,
+
+    var cursor: Cursor = .{
+        .x = 0,
+        .y = 0,
+        .changed = false,
+    };
+
+    pub const Cursor = struct {
+        x: f32,
+        y: f32,
+        changed: bool,
+    };
 
     pub const Event = struct {
         listeners: ArrayList(Listener),
@@ -52,6 +66,7 @@ pub const EventSystem = struct {
             MouseRight,
             MouseWheel,
             MouseLeft,
+            MouseMove,
             WindowResize,
 
             Max,
@@ -99,7 +114,16 @@ pub const EventSystem = struct {
 
     const Press = Platform.Press;
     const keys = [_]i32 {
-        Platform.KeyF,
+        Platform.Right,
+        Platform.Left,
+        Platform.Down,
+        Platform.Up,
+        Platform.Space,
+        Platform.Control,
+        Platform.W,
+        Platform.A,
+        Platform.S,
+        Platform.D,
     };
 
     pub fn new() !EventSystem {
@@ -129,6 +153,42 @@ pub const EventSystem = struct {
         return try self.events[@intFromEnum(code)].new_emiter();
     }
 
+    pub fn init(self: *EventSystem, window: *Platform.Window, game: *Game, comptime T: type, backend: *Backend(T)) void {
+        self.add_listener(game.camera.handler_resize(), .WindowResize) catch {
+            logger.log(.Fatal,"Could not register camera in resize window event system", .{});
+        };
+
+        self.add_listener(game.camera.handler_keyboard(), .KeyPress) catch {
+            logger.log(.Fatal,"Could not register camera in keyboard event system", .{});
+        };
+
+        self.add_listener(game.camera.handler_mouse(), .MouseMove) catch {
+            logger.log(.Fatal,"Could not register camera in mouse event system", .{});
+        };
+
+        self.add_listener(game.object_handle.handler(), .KeyPress) catch {
+            logger.log(.Fatal,"Could not register object handle in keyboard event system", .{});
+        };
+
+        backend.register_window_emiter(self.add_emiter(.WindowResize) catch {
+            logger.log(.Fatal, "Failed to register window resize emiter", .{});
+
+            unreachable;
+        });
+
+        Platform.cursor_position_callback(window, cursor_changed);
+   }
+
+    pub fn cursor_changed(window: ?*Platform.Window, x: f64, y: f64) callconv (.C) void {
+        cursor = .{
+            .x = @floatCast(x),
+            .y = @floatCast(y),
+            .changed = true,
+        };
+
+        Platform.set_cursor_position(window, 0.0, 0.0);
+    }
+
     pub fn input(self: *EventSystem, window: *Platform.Window) void {
         Platform.poll_events();
         const current_time = Platform.get_time();
@@ -141,6 +201,13 @@ pub const EventSystem = struct {
                     self.events[i].emiters.items[k].changed = false;
                 }
             }
+        }
+
+        if (cursor.changed) {
+            // self.fire(Event.Type.MouseMove, .{ .f32 = .{ 0, 0 } });
+            self.fire(Event.Type.MouseMove, .{ .f32 = .{ cursor.x, cursor.y } });
+
+            cursor.changed = false;
         }
 
         for (keys) |key| {

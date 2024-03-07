@@ -11,9 +11,18 @@ const logger = _config.Configuration.logger;
 
 pub const Platform = struct {
     pub const Window = c.GLFWwindow;
-
     pub const Press = c.GLFW_PRESS;
-    pub const KeyF = c.GLFW_KEY_F;
+
+    pub const Right: u32   = @as(u32, @intCast(c.GLFW_KEY_RIGHT));
+    pub const Left: u32    = @as(u32, @intCast(c.GLFW_KEY_LEFT));
+    pub const Down: u32    = @as(u32, @intCast(c.GLFW_KEY_DOWN));
+    pub const Up: u32      = @as(u32, @intCast(c.GLFW_KEY_UP));
+    pub const W: u32       = @as(u32, @intCast(c.GLFW_KEY_W));
+    pub const A: u32       = @as(u32, @intCast(c.GLFW_KEY_A));
+    pub const S: u32       = @as(u32, @intCast(c.GLFW_KEY_S));
+    pub const D: u32       = @as(u32, @intCast(c.GLFW_KEY_D));
+    pub const Control: u32 = @as(u32, @intCast(c.GLFW_KEY_LEFT_CONTROL));
+    pub const Space: u32   = @as(u32, @intCast(c.GLFW_KEY_SPACE));
 
     pub fn init() !void {
         if (c.glfwInit() != c.GLFW_TRUE) {
@@ -27,6 +36,19 @@ pub const Platform = struct {
 
             return error.VulkanInit;
         }
+    }
+
+    pub fn set_cursor_position(window: ?*Window, x: f64, y: f64) void {
+        c.glfwSetCursorPos(window, x, y);
+    }
+
+    pub fn cursor_position_callback(window: *Window, func: ?*const fn (?*Window, f64, f64) callconv (.C) void) void {
+        c.glfwSetInputMode(window, c.GLFW_CURSOR, c.GLFW_CURSOR_DISABLED);
+        _ = c.glfwSetCursorPosCallback(window, func);
+    }
+
+    pub fn key_callback(window: *Window, func: ?*const fn (?*Window, u32) callconv (.C) void) void {
+        _ = c.glfwSetCharCallback(window, func);
     }
 
     pub fn create_window(width: u32, height: u32, name: [*c]const u8) !*Window {
@@ -94,4 +116,3 @@ pub const Platform = struct {
         c.glfwTerminate();
     }
 };
-

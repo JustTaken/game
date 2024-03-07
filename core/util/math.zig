@@ -91,15 +91,53 @@ pub const Matrix = struct {
         };
     }
 
+    pub fn x_rotate(theta: f32) [4][4]f32 {
+        var cos = std.math.cos(theta);
+        var sin = std.math.sin(theta);
+
+        if (cos * cos < 0.01) {
+            cos = 0;
+        }
+        if (sin * sin < 0.01) {
+            sin = 0;
+        }
+
+        return .{
+            [4]f32 { 1.0, 0.0, 0.0, 0.0 },
+            [4]f32 { 0.0, cos, sin, 0.0 },
+            [4]f32 { 0.0, -sin, cos, 0.0 },
+            [4]f32 { 0.0, 0.0, 0.0, 1.0 },
+        };
+    }
+
+    pub fn y_rotate(theta: f32) [4][4]f32 {
+        var cos = std.math.cos(theta);
+        var sin = std.math.sin(theta);
+
+        if (cos * cos < 0.001) {
+            cos = 0;
+        }
+        if (sin * sin < 0.001) {
+            sin = 0;
+        }
+
+        return .{
+            [4]f32 { cos, 0.0, -sin, 0.0 },
+            [4]f32 { 0.0, 1.0, 0.0, 0.0 },
+            [4]f32 { sin, 0.0, cos, 0.0 },
+            [4]f32 { 0.0, 0.0, 0.0, 1.0 },
+        };
+    }
+
     pub inline fn rotate(theta: f32, vec: Vec) [4][4]f32 {
         const norm = vec.normalize();
         const cos = std.math.cos(theta);
         const sin = std.math.sin(theta);
 
         return .{
-            [4]f32 {cos + norm.x * norm.x * (1 - cos), norm.y * norm.x * (1 - cos) + norm.z * sin, norm.z * norm.x * (1 - cos) - norm.y * sin,  0.0},
-            [4]f32 {norm.x * norm.y * (1 - cos) - vec.z * sin, cos + norm.y * norm.y * (1 - cos),  norm.z * norm.y * (1 - cos) + norm.x * sin,  0.0},
-            [4]f32 {norm.x * norm.z * (1 - cos) + norm.y * sin, norm.y * norm.z * (1 - cos) - norm.x * sin, cos + norm.z * norm.z * (1 - cos),  0.0},
+            [4]f32 {cos + norm.x * norm.x * (1 - cos), norm.y * norm.x * (1 - cos) + norm.z * sin, norm.z * norm.x * (1 - cos) + norm.y * sin,  0.0},
+            [4]f32 {norm.x * norm.y * (1 - cos) - norm.z * sin, cos + norm.y * norm.y * (1 - cos),  norm.z * norm.y * (1 - cos) - norm.x * sin,  0.0},
+            [4]f32 {norm.x * norm.z * (1 - cos) + norm.y * sin, norm.y * norm.z * (1 - cos) + norm.x * sin, cos + norm.z * norm.z * (1 - cos),  0.0},
             [4]f32 {0.0, 0.0, 0.0, 1.0},
         };
     }
@@ -115,13 +153,13 @@ pub const Matrix = struct {
 
     pub inline fn perspective(fovy: f32, aspect: f32, near: f32, far: f32) [4][4]f32 {
         const top = 1.0 / std.math.tan(fovy * 0.5);
-        const r = near / (far - near);
+        const r = far / (far - near);
 
         return [4][4]f32 {
             [4]f32 {top / aspect, 0.0, 0.0, 0.0},
             [4]f32 {0.0, top, 0.0, 0.0},
             [4]f32 {0.0, 0.0, r, 1.0},
-            [4]f32 {0.0, 0.0, -far * r, 1.0},
+            [4]f32 {0.0, 0.0, -r * near, 0.0},
         };
     }
 
