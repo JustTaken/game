@@ -397,7 +397,7 @@ pub const Object = struct {
 
         var buf_reader = std.io.bufferedReader(file.reader());
         var in_stream = buf_reader.reader();
-        var buffer: [100]u8 = undefined;
+        var buffer: [1024]u8 = undefined;
 
         while (true) {
             if (in_stream.readUntilDelimiterOrEof(&buffer, '\n') catch {
@@ -424,25 +424,36 @@ pub const Object = struct {
 
                     try vertex_array.push(vec);
                 } else if (std.mem.eql(u8, first, "f")) {
-                    var count: u8 = 0;
-                    var numbers: [12]u16 = undefined;
+                    var count: u32 = 0;
+                    var numbers = try ArrayList(u16).init(allocator, 12);
 
                     while (split.next()) |word| {
                         var ns = std.mem.split(u8, word, &.{47});
 
                         while (ns.next()) |n| {
-                            numbers[count] = try std.fmt.parseInt(u16, n, 10) - 1;
-                            count += 1;
+                            try numbers.push(try std.fmt.parseInt(u16, n, 10) - 1);
                         }
+
+                        count += 1;
                     }
 
-                    try index_array.push(numbers[0]);
-                    try index_array.push(numbers[3]);
-                    try index_array.push(numbers[6]);
+                    if (count % 3 == 0) {
+                        for (0..numbers.items.len / 9) |i| {
+                            try index_array.push(numbers.items[(i + 0) * 3]);
+                            try index_array.push(numbers.items[(i + 1) * 3]);
+                            try index_array.push(numbers.items[(i + 2) * 3]);
+                        }
+                    } else if (count % 4 == 0) {
+                        for (0..numbers.items.len / 12) |i| {
+                            try index_array.push(numbers.items[(i + 0) * 3]);
+                            try index_array.push(numbers.items[(i + 1) * 3]);
+                            try index_array.push(numbers.items[(i + 2) * 3]);
 
-                    try index_array.push(numbers[6]);
-                    try index_array.push(numbers[9]);
-                    try index_array.push(numbers[0]);
+                            try index_array.push(numbers.items[(i + 0) * 3]);
+                            try index_array.push(numbers.items[(i + 2) * 3]);
+                            try index_array.push(numbers.items[(i + 3) * 3]);
+                        }
+                    }
                 }
             } else {
                 break;

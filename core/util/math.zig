@@ -110,7 +110,7 @@ pub const Matrix = struct {
         };
     }
 
-    pub fn y_rotate(theta: f32) [4][4]f32 {
+    pub inline fn y_rotate(theta: f32) [4][4]f32 {
         var cos = std.math.cos(theta);
         var sin = std.math.sin(theta);
 
@@ -126,6 +126,15 @@ pub const Matrix = struct {
             [4]f32 { 0.0, 1.0, 0.0, 0.0 },
             [4]f32 { sin, 0.0, cos, 0.0 },
             [4]f32 { 0.0, 0.0, 0.0, 1.0 },
+        };
+    }
+
+    pub inline fn ortogonal(vec: Vec) [4][4]f32 {
+        return .{
+            [4]f32 {vec.x * vec.x, vec.x * vec.y - vec.z, vec.x * vec.z + vec.y,  0.0},
+            [4]f32 {vec.y * vec.x + vec.z, vec.y * vec.y,  vec.y * vec.z - vec.x,  0.0},
+            [4]f32 {vec.z * vec.x - vec.y, vec.z * vec.y + vec.x, vec.z * vec.z,  0.0},
+            [4]f32 {0.0, 0.0, 0.0, 1.0},
         };
     }
 

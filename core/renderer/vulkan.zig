@@ -69,20 +69,20 @@ pub const Vulkan = struct {
             };
 
             try check(PFN_vkCreateInstance(&.{
-                    .sType = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-                    .pApplicationInfo = &.{
-                        .sType = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
-                        .pApplicationName = @as([*:0]const u8, @ptrCast(configuration.application_name)),
-                        .applicationVersion = configuration.version,
-                        .pEngineName = @as([*:0]const u8, @ptrCast(configuration.application_name)),
-                        .engineVersion = configuration.version,
-                        .apiVersion = c.VK_MAKE_API_VERSION(0, 1, 3, 0),
-                    },
-                    .enabledExtensionCount = @as(u32, @intCast(extensions.len)),
-                    .ppEnabledExtensionNames = extensions.ptr,
+                .sType = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+                .pApplicationInfo = &.{
+                    .sType = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
+                    .pApplicationName = @as([*:0]const u8, @ptrCast(configuration.application_name)),
+                    .applicationVersion = configuration.version,
+                    .pEngineName = @as([*:0]const u8, @ptrCast(configuration.application_name)),
+                    .engineVersion = configuration.version,
+                    .apiVersion = c.VK_MAKE_API_VERSION(0, 1, 3, 0),
                 },
-                null,
-                &instance));
+                .enabledExtensionCount = @as(u32, @intCast(extensions.len)),
+                .ppEnabledExtensionNames = extensions.ptr,
+                },
+                                           null,
+                                           &instance));
 
             const PFN_vkGetInstanceProcAddr = @as(c.PFN_vkGetInstanceProcAddr, @ptrCast(c.glfwGetInstanceProcAddress(instance, "vkGetInstanceProcAddr"))) orelse return error.FunctionNotFound;
 
@@ -292,6 +292,7 @@ pub const Vulkan = struct {
             get_swapchain_images: *const fn (c.VkDevice, c.VkSwapchainKHR, *u32, ?[*]c.VkImage) callconv(.C) i32,
             get_buffer_memory_requirements: *const fn (c.VkDevice, c.VkBuffer, *c.VkMemoryRequirements) callconv(.C) void,
             bind_buffer_memory: *const fn (c.VkDevice, c.VkBuffer, c.VkDeviceMemory, u64) callconv(.C) i32,
+            bind_image_memory: *const fn (c.VkDevice, c.VkImage, c.VkDeviceMemory, u64) callconv(.C) i32,
             acquire_next_image: *const fn (c.VkDevice, c.VkSwapchainKHR, u64, c.VkSemaphore, c.VkFence, *u32) callconv(.C) i32,
             wait_for_fences : *const fn (c.VkDevice, u32, *const c.VkFence, u32, u64) callconv(.C) i32,
             reset_fences: *const fn (c.VkDevice, u32, *const c.VkFence) callconv(.C) i32,
@@ -507,6 +508,7 @@ pub const Vulkan = struct {
                     .get_image_memory_requirements = @as(c.PFN_vkGetImageMemoryRequirements, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkGetImageMemoryRequirements"))) orelse return error.FunctionNotFound,
                     .get_buffer_memory_requirements = @as(c.PFN_vkGetBufferMemoryRequirements, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkGetBufferMemoryRequirements"))) orelse return error.FunctionNotFound,
                     .bind_buffer_memory = @as(c.PFN_vkBindBufferMemory, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkBindBufferMemory"))) orelse return error.FunctionNotFound,
+                    .bind_image_memory = @as(c.PFN_vkBindImageMemory, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkBindImageMemory"))) orelse return error.FunctionNotFound,
                     .acquire_next_image = @as(c.PFN_vkAcquireNextImageKHR, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkAcquireNextImageKHR"))) orelse return error.FunctionNotFound,
                     .wait_for_fences = @as(c.PFN_vkWaitForFences, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkWaitForFences"))) orelse return error.FunctionNotFound,
                     .reset_fences= @as(c.PFN_vkResetFences, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkResetFences"))) orelse return error.FunctionNotFound,
@@ -605,6 +607,17 @@ pub const Vulkan = struct {
             try check(self.dispatch.bind_buffer_memory(self.handle, buffer, memory, 0));
         }
 
+        fn bind_image_memory(self: Device, image: c.VkImage, memory: c.VkDeviceMemory) !void {
+            try check(self.dispatch.bind_image_memory(self.handle, image, memory, 0));
+        }
+
+        fn create_image(self: Device, info: c.VkImageCreateInfo) !c.VkImage {
+            var image: c.VkImage = undefined;
+            try check(self.dispatch.create_image(self.handle, &info, null, &image));
+
+            return image;
+        }
+
         fn create_image_view(self: Device, info: c.VkImageViewCreateInfo) !c.VkImageView {
             var view: c.VkImageView = undefined;
             try check(self.dispatch.create_image_view(self.handle, &info, null, &view));
@@ -641,6 +654,7 @@ pub const Vulkan = struct {
 
         fn create_graphics_pipeline(self: Device, info: c.VkGraphicsPipelineCreateInfo) !c.VkPipeline {
             var pipeline: c.VkPipeline = undefined;
+
             try check(self.dispatch.create_graphics_pipeline(self.handle, null, 1, &info, null, &pipeline));
 
             return pipeline;
@@ -891,7 +905,8 @@ pub const Vulkan = struct {
         handle: c.VkSwapchainKHR,
         extent: c.VkExtent2D,
         image_views: []c.VkImageView,
-        depth_format: c.VkFormat,
+        depth_image_view: c.VkImageView,
+        depth_image_memory: c.VkDeviceMemory,
         framebuffers: []c.VkFramebuffer,
         arena: std.heap.ArenaAllocator,
 
@@ -930,7 +945,7 @@ pub const Vulkan = struct {
             const uniques_queue_family_index = Device.Queue.uniques(&.{
                 device.queues[0].family,
                 device.queues[1].family,
-            }, allocator) catch |e| {
+                }, allocator) catch |e| {
                 logger.log(.Error, "Failed to get uniques queue family index list", .{});
 
                 return e;
@@ -997,22 +1012,72 @@ pub const Vulkan = struct {
                 };
             }
 
-            const depth_formats = [_]c.VkFormat {
-                c.VK_FORMAT_D32_SFLOAT,
-                c.VK_FORMAT_D32_SFLOAT_S8_UINT,
-                c.VK_FORMAT_D24_UNORM_S8_UINT,
+            const depth_image = device.create_image(.{
+                .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                .imageType = c.VK_IMAGE_TYPE_2D,
+                .extent = .{
+                    .width = extent.width,
+                    .height = extent.height,
+                    .depth = 1,
+                },
+                .mipLevels = 1,
+                .arrayLayers = 1,
+                .format = graphics_pipeline.depth_format,
+                .tiling = c.VK_IMAGE_TILING_OPTIMAL,
+                .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+                .usage = c.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                .samples = c.VK_SAMPLE_COUNT_1_BIT,
+                .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+            }) catch |e| {
+                logger.log(.Error, "Failed to create images", .{});
+
+                return e;
             };
 
-            const flags = c.VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
-            const depth_format = blk: for (depth_formats) |candidate| {
-                const format_properties = instance.get_physical_device_format_properties(device.physical_device, candidate);
-                if ((format_properties.linearTilingFeatures & flags) == flags or (format_properties.optimalTilingFeatures & flags) == flags) {
-                    break :blk candidate;
+            const memory_properties = instance.get_physical_device_memory_properties(device.physical_device);
+            const image_memory_requirements = device.get_image_memory_requirements(depth_image);
+            const memory_index = blk: for (0..memory_properties.memoryTypeCount) |i| {
+                if ((image_memory_requirements.memoryTypeBits & (@as(u32, @intCast(1)) << @as(u5, @intCast(i)))) != 0 and (memory_properties.memoryTypes[i].propertyFlags & c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) == c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
+                    break :blk i;
                 }
             } else {
-                logger.log(.Error, "Failed to find suitable depth format", .{});
+                logger.log(.Error, "Could not find memory type that suit the need of buffer allocation", .{});
 
-                return error.DepthFormat;
+                return error.NoMemoryRequirementsPassed;
+            };
+
+            const depth_image_memory = device.allocate_memory(.{
+                .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                .allocationSize = image_memory_requirements.size,
+                .memoryTypeIndex = @intCast(memory_index),
+            }) catch |e| {
+                logger.log(.Error, "Failed to allocate image memory", .{});
+
+                return e;
+            };
+
+            device.bind_image_memory(depth_image, depth_image_memory) catch |e| {
+                logger.log(.Error, "Failed to bind image memory", .{});
+
+                return e;
+            };
+
+            const depth_image_view = device.create_image_view(.{
+                .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                .image = depth_image,
+                .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
+                .format = graphics_pipeline.depth_format,
+                .subresourceRange = .{
+                    .aspectMask = c.VK_IMAGE_ASPECT_DEPTH_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+            }) catch |e| {
+                logger.log(.Error, "Failed to create image view", .{});
+
+                return e;
             };
 
             var framebuffers = allocator.alloc(c.VkFramebuffer, image_views.len) catch {
@@ -1020,12 +1085,13 @@ pub const Vulkan = struct {
 
                 return error.OutOfMemory;
             };
+
             for (0..image_views.len) |i| {
                 framebuffers[i] = device.create_framebuffer(.{
                     .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
                     .renderPass = graphics_pipeline.render_pass,
-                    .attachmentCount = 1,
-                    .pAttachments = &image_views[i],
+                    .attachmentCount = 2,
+                    .pAttachments = &[_]c.VkImageView {image_views[i], depth_image_view},
                     .width = extent.width,
                     .height = extent.height,
                     .layers = 1,
@@ -1036,12 +1102,12 @@ pub const Vulkan = struct {
                 };
             }
 
-
             return .{
                 .handle = handle,
                 .image_views = image_views,
-                .depth_format = depth_format,
                 .extent = extent,
+                .depth_image_view = depth_image_view,
+                .depth_image_memory = depth_image_memory,
                 .framebuffers = framebuffers,
                 .arena = arena,
             };
@@ -1085,7 +1151,6 @@ pub const Vulkan = struct {
 
             self.handle = new_swapchain.handle;
             self.image_views = new_swapchain.image_views;
-            self.depth_format = new_swapchain.depth_format;
             self.extent = new_swapchain.extent;
             self.framebuffers = new_swapchain.framebuffers;
 
@@ -1110,8 +1175,7 @@ pub const Vulkan = struct {
                 .pCommandBuffers = &command_pool.buffers.items[index].handle,
                 .signalSemaphoreCount = 1,
                 .pSignalSemaphores = &sync.render_finished,
-            }, sync.in_flight_fence);
-
+                }, sync.in_flight_fence);
             try device.queue_present(.{
                 .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
                 .waitSemaphoreCount = 1,
@@ -1124,6 +1188,8 @@ pub const Vulkan = struct {
         }
 
         fn destroy(self: *Swapchain, device: Device) void {
+            device.free_memory(self.depth_image_memory);
+            device.destroy_image_view(self.depth_image_view);
             device.destroy_swapchain(self.handle);
             _ = self.arena.reset(.free_all);
         }
@@ -1176,6 +1242,7 @@ pub const Vulkan = struct {
         render_pass: c.VkRenderPass,
         descriptor: Descriptor,
         format: c.VkSurfaceFormatKHR,
+        depth_format: c.VkFormat,
 
         const Descriptor = struct {
             pools: ArrayList(Pool),
@@ -1425,6 +1492,17 @@ pub const Vulkan = struct {
                 .blendConstants = .{ 0.0, 0.0, 0.0, 0.0 },
             };
 
+            const depth_stencil_state_info: c.VkPipelineDepthStencilStateCreateInfo = .{
+                .sType = c.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+                .depthTestEnable = c.VK_TRUE,
+                .depthWriteEnable = c.VK_TRUE,
+                .depthCompareOp = c.VK_COMPARE_OP_LESS,
+                .depthBoundsTestEnable = c.VK_FALSE,
+                .stencilTestEnable = c.VK_FALSE,
+                .minDepthBounds = 0.0,
+                .maxDepthBounds = 1.0,
+            };
+
             const descriptor_set_layout = try device.create_descriptor_set_layout(.{
                 .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
                 .bindingCount = 1,
@@ -1470,18 +1548,48 @@ pub const Vulkan = struct {
                 break :blk formats[0];
             };
 
+            const depth_formats = [_]c.VkFormat {
+                c.VK_FORMAT_D32_SFLOAT,
+                c.VK_FORMAT_D32_SFLOAT_S8_UINT,
+                c.VK_FORMAT_D24_UNORM_S8_UINT,
+            };
+
+            const flags = c.VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+            const depth_format = blk: for (depth_formats) |candidate| {
+                const format_properties = instance.get_physical_device_format_properties(device.physical_device, candidate);
+                if ((format_properties.linearTilingFeatures & flags) == flags or (format_properties.optimalTilingFeatures & flags) == flags) {
+                    break :blk candidate;
+                }
+            } else {
+                logger.log(.Error, "Failed to find suitable depth format", .{});
+
+                return error.DepthFormat;
+            };
+
             const render_pass = device.create_render_pass(.{
                 .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-                .attachmentCount = 1,
-                .pAttachments = &.{
-                    .format = format.format,
-                    .samples = c.VK_SAMPLE_COUNT_1_BIT,
-                    .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
-                    .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
-                    .stencilLoadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-                    .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
-                    .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
-                    .finalLayout = c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                .attachmentCount = 2,
+                .pAttachments = &[_]c.VkAttachmentDescription {
+                    .{
+                        .format = format.format,
+                        .samples = c.VK_SAMPLE_COUNT_1_BIT,
+                        .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
+                        .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
+                        .stencilLoadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                        .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                        .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+                        .finalLayout = c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                    },
+                    .{
+                        .format = depth_format,
+                        .samples = c.VK_SAMPLE_COUNT_1_BIT,
+                        .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
+                        .storeOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                        .stencilLoadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                        .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                        .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+                        .finalLayout = c.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    }
                 },
                 .subpassCount = 1,
                 .pSubpasses = &.{
@@ -1491,15 +1599,19 @@ pub const Vulkan = struct {
                         .attachment = 0,
                         .layout = c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                     },
+                    .pDepthStencilAttachment = &.{
+                        .attachment = 1,
+                        .layout = c.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    },
                 },
                 .dependencyCount = 1,
                 .pDependencies = &.{
                     .srcSubpass = c.VK_SUBPASS_EXTERNAL,
                     .dstSubpass = 0,
-                    .srcStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                    .srcStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
                     .srcAccessMask = 0,
-                    .dstStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                    .dstAccessMask = c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                    .dstStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+                    .dstAccessMask = c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | c.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
                 },
             }) catch |e| {
                 logger.log(.Error, "Failed to create render pass", .{});
@@ -1508,25 +1620,25 @@ pub const Vulkan = struct {
             };
 
             const handle = device.create_graphics_pipeline(.{
-                    .sType = c.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-                    .stageCount = shader_stage_infos.len,
-                    .pStages = &shader_stage_infos[0],
-                    .pVertexInputState = &vertex_input_state_info,
-                    .pInputAssemblyState = &input_assembly_state_info,
-                    .pViewportState = &viewport_state_info,
-                    .pRasterizationState = &rasterizer_state_info,
-                    .pMultisampleState = &multisampling_state_info,
-                    .pDynamicState = &dynamic_state_info,
-                    .pColorBlendState = &color_blend_state_info,
-                    .layout = layout,
-                    .renderPass = render_pass,
-                    .subpass = 0,
-                    .basePipelineHandle = null,
-                    .pDepthStencilState = null,
-                }) catch |e| {
-                    logger.log(.Error, "Failed to create graphics pipeline", .{});
+                .sType = c.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+                .stageCount = shader_stage_infos.len,
+                .pStages = &shader_stage_infos[0],
+                .pVertexInputState = &vertex_input_state_info,
+                .pInputAssemblyState = &input_assembly_state_info,
+                .pViewportState = &viewport_state_info,
+                .pRasterizationState = &rasterizer_state_info,
+                .pMultisampleState = &multisampling_state_info,
+                .pDynamicState = &dynamic_state_info,
+                .pColorBlendState = &color_blend_state_info,
+                .pDepthStencilState = &depth_stencil_state_info,
+                .layout = layout,
+                .renderPass = render_pass,
+                .subpass = 0,
+                .basePipelineHandle = null,
+            }) catch |e| {
+                logger.log(.Error, "Failed to create graphics pipeline", .{});
 
-                    return e;
+                return e;
             };
 
             return .{
@@ -1535,6 +1647,7 @@ pub const Vulkan = struct {
                 .render_pass = render_pass,
                 .descriptor = descriptor,
                 .format = format,
+                .depth_format = depth_format,
             };
         }
 
@@ -1571,8 +1684,15 @@ pub const Vulkan = struct {
                         .offset = .{ .x = 0, .y = 0 },
                         .extent = swapchain.extent,
                     },
-                    .pClearValues= &.{ .color = .{ .float32 = .{0.0, 0.0, 0.0, 1.0}, } },
-                    .clearValueCount = 1,
+                    .clearValueCount = 2,
+                    .pClearValues= &[_]c.VkClearValue {
+                        .{
+                            .color = .{ .float32 = .{0.0, 0.0, 0.0, 1.0}, }
+                        },
+                        .{
+                            .depthStencil = .{ .depth = 1.0, .stencil = 0 },
+                        }
+                        },
                 });
 
                 device.cmd_set_viewport(self.handle, .{
@@ -1640,7 +1760,7 @@ pub const Vulkan = struct {
                 .commandPool = handle,
                 .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
                 .commandBufferCount = count,
-            }, allocator) catch |e| {
+                }, allocator) catch |e| {
                 logger.log(.Error, "Failed to allocate command buffer", .{});
 
                 return e;
@@ -2013,7 +2133,7 @@ pub const Vulkan = struct {
                         .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
                         .commandPool = command_pool,
                         .commandBufferCount = 1,
-                    }, allocator) catch |e| {
+                        }, allocator) catch |e| {
                         logger.log(.Error, "Failed to allocate command buffer", .{});
 
                         return e;
@@ -2102,7 +2222,7 @@ pub const Vulkan = struct {
                             game.object_handle.objects.items[update.id].id = try self.models[k].add_item(device, memory_properties, .{
                                 .model = object.model,
                                 .color = object.color,
-                            }, descriptor, allocator);
+                                }, descriptor, allocator);
 
                             command_pool.invalidate();
                         },
@@ -2163,7 +2283,6 @@ pub const Vulkan = struct {
 
             return e;
         };
-
         const sync = Sync.new(device) catch |e| {
             logger.log(.Error, "Failed to create sync objects", .{});
 
@@ -2226,7 +2345,7 @@ pub const Vulkan = struct {
                     return e2;
                 };
 
-            logger.log(.Debug, "Swapchain recreated", .{});
+                logger.log(.Debug, "Swapchain recreated", .{});
 
                 return;
             } else {

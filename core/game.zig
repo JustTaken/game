@@ -24,13 +24,19 @@ pub const Game = struct {
 
     pub fn new() !Game {
         var object_handle = try ObjectHandle.new();
-        for (0..10) |i| {
+        for (0..5) |i| {
             try object_handle.add_object(.{
-                .model = Matrix.translate(0.0, 0.0, @floatFromInt(i)),
+                .model = Matrix.translate(0.0, 0.0, @as(f32, @floatFromInt(i)) * 2),
                 .color = Matrix.scale(0.1, @as(f32, @floatFromInt(i)) * 0.1, 0.3),
                 .typ = .Cube,
             });
         }
+
+        try object_handle.add_object(.{
+            .model = Matrix.translate(2.0, 2.0, 1.0),
+            .color = Matrix.scale(0.1, 0.1, 0.7),
+            .typ = .Cone,
+        });
 
         return .{
             .object_handle = object_handle,
@@ -273,7 +279,7 @@ pub const Camera = struct {
     }
 
     fn mouse(self: *Camera, x: f32, y: f32) void {
-        const MAX = 3;
+        const MAX = 5;
         if (x > MAX or y > MAX) return;
         if (x < -MAX or y < -MAX) return;
 
@@ -295,30 +301,9 @@ pub const Camera = struct {
             .z = self.view[2][0],
         };
 
-        const floor_direction: Vec = .{
-            .x = right_vec.x,
-            .y = 0.0,
-            .z = right_vec.z,
-        };
-
-        const wall_direction: Vec = .{
-            .x = 0.0,
-            .y = up_vec.y,
-            .z = up_vec.z,
-        };
-
-        // std.debug.print("ortogonal: {any}\n", .{ortogonal});
-        // std.debug.print("direction: {any}\n", .{direction});
-
-        // std.debug.print("ortogonal with direction: {d}\n", .{ortogonal.dot(direction)});
-        // std.debug.print("ortogonal with right: {d}\n", .{ortogonal.dot(right_vec)});
-        // std.debug.print("direction with right: {d}\n", .{direction.dot(right_vec)});
-        // std.debug.print("ortogonal with floor: {d}\n", .{ortogonal.dot(floor_direction)});
-        // direction = direction.sum(floor_direction.scale(x)).normalize();
-
-        const ortogonal = floor_direction.mult(y_rotation);
-        direction = direction.sum(wall_direction.scale(y).sum(floor_direction.scale(x))).normalize();
-        right_vec = right_vec.sum(ortogonal.scale(-x)).normalize();
+        right_vec = right_vec.sum(right_vec.mult(y_rotation).scale(-x)).normalize();
+        up_vec = up_vec.sum(direction.scale(-y)).normalize();
+        direction = up_vec.cross(right_vec);
         up_vec = right_vec.cross(direction);
 
         self.view = .{
@@ -332,9 +317,14 @@ pub const Camera = struct {
     }
 
     fn centralize(self: *Camera) void {
+        self.eye = .{
+            .x = 0,
+            .y = 0,
+            .z = -1,
+        };
         self.view = .{
             [4]f32 { 1.0, 0.0, 0.0, 0.0 },
-            [4]f32 { 0.0, 1.0, 0.0, 0.0 },
+            [4]f32 { 0.0, -1.0, 0.0, 0.0 },
             [4]f32 { 0.0, 0.0, 1.0, 0.0 },
             [4]f32 { 0.0, 0.0, 0.0, 1.0 },
         };
