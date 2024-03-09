@@ -32,6 +32,8 @@ pub const Platform = struct {
             return error.GlfwInit;
         }
 
+        c.glfwWindowHint(c.GLFW_CLIENT_API, c.GLFW_NO_API);
+
         if (c.glfwVulkanSupported() != c.GLFW_TRUE) {
             logger.log(.Error, "Vulkan lib not found", .{});
 

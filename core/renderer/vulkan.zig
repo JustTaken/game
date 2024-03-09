@@ -5,7 +5,7 @@ const _collections = @import("../util/collections.zig");
 const _io = @import("../util/io.zig");
 const _math = @import("../util/math.zig");
 const _platform = @import("platform.zig");
-const _assets = @import("assets.zig");
+const _object = @import("../asset/object.zig");
 const _game = @import("../game.zig");
 const _event = @import("../event.zig");
 
@@ -17,15 +17,13 @@ const ArrayList = _collections.ArrayList;
 const Io = _io.Io;
 const Vec = _math.Vec;
 const Matrix = _math.Matrix;
-const Object = _assets.Object;
+const Object = _object.Object;
 const Game = _game.Game;
 const ObjectHandle = _game.ObjectHandle;
 const Emiter = _event.EventSystem.Event.Emiter;
 
 const logger = configuration.logger;
 
-var SNAP_ARENA = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-const SNAP_ALLOCATOR = SNAP_ARENA.allocator();
 const REQUIRED_DEVICE_EXTENSIONS = [_][*:0]const u8 { c.VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
 pub const Vulkan = struct {
@@ -67,6 +65,8 @@ pub const Vulkan = struct {
 
                 return e;
             };
+
+            defer allocator.free(extensions);
 
             try check(PFN_vkCreateInstance(&.{
                 .sType = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -122,11 +122,7 @@ pub const Vulkan = struct {
             var count: u32 = undefined;
 
             try check(self.dispatch.enumerate_physical_devices(self.handle, &count, null));
-            const physical_devices = allocator.alloc(c.VkPhysicalDevice, count) catch {
-                logger.log(.Error, "Out of memory", .{});
-
-                return error.OutOfMemory;
-            };
+            const physical_devices = try allocator.alloc(c.VkPhysicalDevice, count);
 
             try check(self.dispatch.enumerate_physical_devices(self.handle, &count, physical_devices.ptr));
 
@@ -137,11 +133,7 @@ pub const Vulkan = struct {
             var count: u32 = undefined;
 
             try check(self.dispatch.enumerate_device_extension_properties(physical_device, null, &count, null));
-            const extension_properties = allocator.alloc(c.VkExtensionProperties, count) catch {
-                logger.log(.Error, "Out of memory", .{});
-
-                return error.OutOfMemory;
-            };
+            const extension_properties = try allocator.alloc(c.VkExtensionProperties, count);
 
             try check(self.dispatch.enumerate_device_extension_properties(physical_device, null, &count, extension_properties.ptr));
 
@@ -172,11 +164,7 @@ pub const Vulkan = struct {
         fn get_physical_device_surface_formats(self: Instance, physical_device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR, allocator: std.mem.Allocator) ![]c.VkSurfaceFormatKHR {
             var count: u32 = undefined;
             try check(self.dispatch.get_physical_device_surface_formats(physical_device, surface, &count, null));
-            const formats = allocator.alloc(c.VkSurfaceFormatKHR, count) catch {
-                logger.log(.Error, "Out of memory", .{});
-
-                return error.OutOfMemory;
-            };
+            const formats = try allocator.alloc(c.VkSurfaceFormatKHR, count);
 
             try check(self.dispatch.get_physical_device_surface_formats(physical_device, surface, &count, formats.ptr));
 
@@ -186,11 +174,7 @@ pub const Vulkan = struct {
         fn get_physical_device_surface_present_modes(self: Instance, physical_device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR, allocator: std.mem.Allocator) ![]c.VkPresentModeKHR {
             var count: u32 = undefined;
             try check(self.dispatch.get_physical_device_surface_present_modes(physical_device, surface, &count, null));
-            const present_modes = allocator.alloc(c.VkPresentModeKHR, count) catch {
-                logger.log(.Error, "Out of memory", .{});
-
-                return error.OutOfMemory;
-            };
+            const present_modes = try allocator.alloc(c.VkPresentModeKHR, count);
             try check(self.dispatch.get_physical_device_surface_present_modes(physical_device, surface, &count, present_modes.ptr));
 
             return present_modes;
@@ -199,10 +183,7 @@ pub const Vulkan = struct {
         fn get_physical_device_queue_family_properties(self: Instance, physical_device: c.VkPhysicalDevice, allocator: std.mem.Allocator) ![]c.VkQueueFamilyProperties {
             var count: u32 = undefined;
             self.dispatch.get_physical_device_queue_family_properties(physical_device, &count, null);
-            const properties = allocator.alloc(c.VkQueueFamilyProperties, count) catch {
-                logger.log(.Error, "Out of memory", .{});
-                return error.OutOfMemory;
-            };
+            const properties = try allocator.alloc(c.VkQueueFamilyProperties, count);
 
             self.dispatch.get_physical_device_queue_family_properties(physical_device, &count, properties.ptr);
 
@@ -246,19 +227,10 @@ pub const Vulkan = struct {
             handle: c.VkQueue,
             family: u32,
 
-            fn uniques(queues: []const u32, allocator: std.mem.Allocator) !std.ArrayList(u32) {
-                var uniques_array = std.ArrayList(u32).initCapacity(allocator, 1) catch |e| {
-                    logger.log(.Error, "Out of memory", .{});
+            fn uniques(queues: []const u32, allocator: std.mem.Allocator) !ArrayList(u32) {
+                var uniques_array = try ArrayList(u32).init(allocator, 1);
 
-                    return e;
-                };
-
-                const first = [_]u32 {queues[0]};
-                uniques_array.appendSlice(&first) catch |e| {
-                    logger.log(.Error, "Out of memory", .{});
-
-                    return e;
-                };
+                try uniques_array.push(queues[0]);
 
                 var size: u32 = 0;
 
@@ -266,11 +238,7 @@ pub const Vulkan = struct {
                     for (0..size + 1) |i| {
                         if (family == uniques_array.items[i]) break;
                     } else {
-                        uniques_array.append(family) catch |e| {
-                            logger.log(.Error, "Failed to add member to uniques queue family index list", .{});
-
-                            return e;
-                        };
+                        try uniques_array.push(family);
 
                         size += 1;
                     }
@@ -335,7 +303,7 @@ pub const Vulkan = struct {
             cmd_draw_indexed: *const fn (c.VkCommandBuffer, u32, u32, u32, i32, u32) callconv(.C) void,
             cmd_push_constants: *const fn (c.VkCommandBuffer, c.VkPipelineLayout, c.VkShaderStageFlags, u32, u32, ?*const anyopaque) callconv(.C) void,
             update_descriptor_sets: *const fn (c.VkDevice, u32, *const c.VkWriteDescriptorSet, u32, ?*const c.VkCopyDescriptorSet) callconv(.C) void,
-            cmd_bind_descriptor_sets: *const fn (c.VkCommandBuffer, c.VkPipelineBindPoint, c.VkPipelineLayout, u32, u32, *const c.VkDescriptorSet, u32, ?*const u32) callconv(.C) void,
+            cmd_bind_descriptor_sets: *const fn (c.VkCommandBuffer, c.VkPipelineBindPoint, c.VkPipelineLayout, u32, u32, [*]const c.VkDescriptorSet, u32, ?*const u32) callconv(.C) void,
             end_render_pass: *const fn (c.VkCommandBuffer) callconv(.C) void,
             end_command_buffer: *const fn (c.VkCommandBuffer) callconv(.C) i32,
             reset_command_buffer: *const fn (c.VkCommandBuffer, c.VkCommandBufferResetFlags) callconv(.C) i32,
@@ -363,6 +331,7 @@ pub const Vulkan = struct {
 
                     return e;
                 };
+                defer allocator.free(physical_devices);
 
                 var points: u32 = 1;
                 var p_device: ?c.VkPhysicalDevice = null;
@@ -375,6 +344,7 @@ pub const Vulkan = struct {
 
                             break :rate 0;
                         };
+                        defer allocator.free(extensions_properties);
 
                         ext: for (REQUIRED_DEVICE_EXTENSIONS) |extension| {
                             for (extensions_properties) |propertie| {
@@ -391,6 +361,8 @@ pub const Vulkan = struct {
                             logger.log(.Error, "Failed to get queue family properties", .{});
                             return e;
                         };
+
+                        defer allocator.free(families_properties);
 
                         for (families_properties, 0..) |properties, i| {
                             const family: u32 = @intCast(i);
@@ -443,12 +415,13 @@ pub const Vulkan = struct {
                 }
             };
 
-            const priority: [1]f32 = .{1};
-            const families = Queue.uniques(&queue_families, allocator) catch |e| {
+            var families = Queue.uniques(&queue_families, allocator) catch |e| {
                 logger.log(.Error, "Could not get uniques queue family index for the selecter physical device", .{});
 
                 return e;
             };
+
+            defer families.deinit();
 
             var queue_create_infos: []c.VkDeviceQueueCreateInfo = allocator.alloc(c.VkDeviceQueueCreateInfo, families.items.len) catch |e| {
                 logger.log(.Error, "Out of memory", .{});
@@ -456,17 +429,17 @@ pub const Vulkan = struct {
                 return e;
             };
 
+            defer allocator.free(queue_create_infos);
+
             for (families.items, 0..) |family, i| {
                 queue_create_infos[i] = .{
                     .queueFamilyIndex = family,
                     .queueCount = 1,
-                    .pQueuePriorities = &priority,
+                    .pQueuePriorities = &[_]f32 {1.0},
                 };
             }
 
-            const device = instance.create_device(
-                physical_device,
-                .{
+            const device = instance.create_device( physical_device, .{
                     .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
                     .queueCreateInfoCount = @as(u32 , @intCast(queue_create_infos.len)),
                     .pQueueCreateInfos = queue_create_infos.ptr,
@@ -578,11 +551,7 @@ pub const Vulkan = struct {
             var count: u32 = undefined;
 
             try check(self.dispatch.get_swapchain_images(self.handle, swapchain, &count, null));
-            const images = allocator.alloc(c.VkImage, count) catch {
-                logger.log(.Error, "Out of memory", .{});
-
-                return error.OutOfMemory;
-            };
+            const images = try allocator.alloc(c.VkImage, count);
 
             try check(self.dispatch.get_swapchain_images(self.handle, swapchain, &count, images.ptr));
 
@@ -750,6 +719,7 @@ pub const Vulkan = struct {
         fn acquire_next_image(self: Device, swapchain: c.VkSwapchainKHR, semaphore: c.VkSemaphore) !u32 {
             const MAX: u64 = 0xFFFFFFFFFFFFFFFF;
             var index: u32 = undefined;
+
             try check(self.dispatch.acquire_next_image(self.handle, swapchain, MAX, semaphore, null, &index));
 
             return index;
@@ -807,9 +777,9 @@ pub const Vulkan = struct {
             self.dispatch.cmd_draw_indexed(command_buffer, size, 1, 0, 0, 0);
         }
 
-        fn cmd_bind_descriptor_sets(self: Device, command_buffer: c.VkCommandBuffer, layout: c.VkPipelineLayout, first: u32, count: u32, descriptor_sets: []c.VkDescriptorSet, offsets: ?[]const u32) void {
+        fn cmd_bind_descriptor_sets(self: Device, command_buffer: c.VkCommandBuffer, layout: c.VkPipelineLayout, first: u32, count: u32, descriptor_sets: []const c.VkDescriptorSet, offsets: ?[]const u32) void {
             const len: u32 = if (offsets) |o| @as(u32, @intCast(o.len)) else 0;
-            self.dispatch.cmd_bind_descriptor_sets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, layout, first, count, &descriptor_sets[0], len, @ptrCast(offsets));
+            self.dispatch.cmd_bind_descriptor_sets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, layout, first, count, descriptor_sets.ptr, len, @ptrCast(offsets));
         }
 
         fn cmd_push_constants(self: Device, command_buffer: c.VkCommandBuffer, layout: c.VkPipelineLayout, offset: u32, size: u32, value: ?*const anyopaque) void {
@@ -904,10 +874,10 @@ pub const Vulkan = struct {
     const Swapchain = struct {
         handle: c.VkSwapchainKHR,
         extent: c.VkExtent2D,
-        image_views: []c.VkImageView,
+        image_views: ArrayList(c.VkImageView),
+        framebuffers: ArrayList(c.VkFramebuffer),
         depth_image_view: c.VkImageView,
         depth_image_memory: c.VkDeviceMemory,
-        framebuffers: []c.VkFramebuffer,
         arena: std.heap.ArenaAllocator,
 
         fn new(device: Device, instance: Instance, window: Window, graphics_pipeline: GraphicsPipeline, opt_arena: ?std.heap.ArenaAllocator) !Swapchain {
@@ -942,10 +912,7 @@ pub const Vulkan = struct {
                 }
             };
 
-            const uniques_queue_family_index = Device.Queue.uniques(&.{
-                device.queues[0].family,
-                device.queues[1].family,
-                }, allocator) catch |e| {
+            const uniques_queue_family_index = Device.Queue.uniques(&.{ device.queues[0].family, device.queues[1].family }, allocator) catch |e| {
                 logger.log(.Error, "Failed to get uniques queue family index list", .{});
 
                 return e;
@@ -974,20 +941,22 @@ pub const Vulkan = struct {
                 return e;
             };
 
+            _ = arena.reset(.free_all);
+
             const images = device.get_swapchain_images(handle, allocator) catch |e| {
                 logger.log(.Error, "Failed to get swapchain images", .{});
 
                 return e;
             };
 
-            const image_views = allocator.alloc(c.VkImageView, images.len) catch |e| {
-                logger.log(.Error, "Out of memory", .{});
+            var image_views = ArrayList(c.VkImageView).init(allocator, @intCast(images.len)) catch |e| {
+                logger.log(.Error, "Could not allocate image views array", .{});
 
                 return e;
             };
 
             for (0..images.len) |i| {
-                image_views[i] = device.create_image_view(.{
+                image_views.push(device.create_image_view(.{
                     .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
                     .image = images[i],
                     .format = graphics_pipeline.format.format,
@@ -1007,6 +976,10 @@ pub const Vulkan = struct {
                     },
                 }) catch |e| {
                     logger.log(.Error, "Failed to get image view from image", .{});
+
+                    return e;
+                }) catch |e| {
+                    logger.log(.Error, "Failed to insert element in image views", .{});
 
                     return e;
                 };
@@ -1029,7 +1002,7 @@ pub const Vulkan = struct {
                 .samples = c.VK_SAMPLE_COUNT_1_BIT,
                 .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
             }) catch |e| {
-                logger.log(.Error, "Failed to create images", .{});
+                logger.log(.Error, "Failed to create image depth", .{});
 
                 return e;
             };
@@ -1051,13 +1024,13 @@ pub const Vulkan = struct {
                 .allocationSize = image_memory_requirements.size,
                 .memoryTypeIndex = @intCast(memory_index),
             }) catch |e| {
-                logger.log(.Error, "Failed to allocate image memory", .{});
+                logger.log(.Error, "Failed to allocate depth image memory", .{});
 
                 return e;
             };
 
             device.bind_image_memory(depth_image, depth_image_memory) catch |e| {
-                logger.log(.Error, "Failed to bind image memory", .{});
+                logger.log(.Error, "Failed to bind depth image memory", .{});
 
                 return e;
             };
@@ -1075,23 +1048,23 @@ pub const Vulkan = struct {
                     .layerCount = 1,
                 },
             }) catch |e| {
-                logger.log(.Error, "Failed to create image view", .{});
+                logger.log(.Error, "Failed to create depth image view", .{});
 
                 return e;
             };
 
-            var framebuffers = allocator.alloc(c.VkFramebuffer, image_views.len) catch {
-                logger.log(.Error, "Out of memory",  .{});
+            var framebuffers = ArrayList(c.VkFramebuffer).init(allocator, @intCast(images.len)) catch {
+                logger.log(.Error, "Failed to create framebuffers array",  .{});
 
                 return error.OutOfMemory;
             };
 
-            for (0..image_views.len) |i| {
-                framebuffers[i] = device.create_framebuffer(.{
+            for (0..image_views.items.len) |i| {
+                framebuffers.push(device.create_framebuffer(.{
                     .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
                     .renderPass = graphics_pipeline.render_pass,
                     .attachmentCount = 2,
-                    .pAttachments = &[_]c.VkImageView {image_views[i], depth_image_view},
+                    .pAttachments = &[_]c.VkImageView {image_views.items[i], depth_image_view},
                     .width = extent.width,
                     .height = extent.height,
                     .layers = 1,
@@ -1099,16 +1072,20 @@ pub const Vulkan = struct {
                     logger.log(.Error, "Failed to crate frambuffer", .{});
 
                     return e;
-                };
-            }
+                }) catch |e| {
+                    logger.log(.Error, "Could not insert element in framebuffes array", .{});
+
+                    return e;
+                    };
+                }
 
             return .{
                 .handle = handle,
                 .image_views = image_views,
+                .framebuffers = framebuffers,
                 .extent = extent,
                 .depth_image_view = depth_image_view,
                 .depth_image_memory = depth_image_memory,
-                .framebuffers = framebuffers,
                 .arena = arena,
             };
         }
@@ -1154,7 +1131,7 @@ pub const Vulkan = struct {
             self.extent = new_swapchain.extent;
             self.framebuffers = new_swapchain.framebuffers;
 
-            command_pool.invalidate();
+            command_pool.invalidate_all();
         }
 
         fn acquire_next_image(self: Swapchain, device: Device, sync: Sync) !u32 {
@@ -1163,7 +1140,8 @@ pub const Vulkan = struct {
 
         fn queue_pass(self: Swapchain, device: Device, pipeline: GraphicsPipeline, command_pool: *CommandPool, sync: Sync, data: Data, index: u32) !void {
             if (!(command_pool.buffers.items[index].is_valid)) {
-                try command_pool.buffers.items[index].record(device, pipeline, self, data);
+                command_pool.buffers.items[index].record(device, pipeline, self, data) catch {
+                };
             }
 
             try device.queue_submit(.{
@@ -1279,17 +1257,27 @@ pub const Vulkan = struct {
                         return error.NoSpace;
                     }
 
-                    const layouts = try allocator.alloc(c.VkDescriptorSetLayout, count);
-                    for (0..count) |i| {
-                        layouts[i] = self.descriptor_set_layout;
+                    var layouts = ArrayList(c.VkDescriptorSetLayout).init(allocator, count) catch |e| {
+                        logger.log(.Error, "Failed to create layouts array", .{});
+
+                        return e;
+                    };
+
+                    for (0..count) |_| {
+                        layouts.push(self.descriptor_set_layout) catch |e| {
+                            logger.log(.Error, "Could not insert layou in descriptor set layouts array", .{});
+
+                            return e;
+                        };
                     }
 
-                    const descriptor_sets = device.allocate_descriptor_sets(
-                        .{
+                    defer layouts.deinit();
+
+                    const descriptor_sets = device.allocate_descriptor_sets(.{
                             .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
                             .descriptorPool = self.handle,
                             .descriptorSetCount = count,
-                            .pSetLayouts = layouts.ptr,
+                            .pSetLayouts = layouts.items.ptr,
                         }, allocator) catch |e| {
                         logger.log(.Error, "Failed to create descriptor sets", .{});
 
@@ -1297,15 +1285,17 @@ pub const Vulkan = struct {
                     };
 
                     for (0..count) |i| {
-                        try self.descriptor_sets.push(descriptor_sets[i]);
-                    }
+                        self.descriptor_sets.push(descriptor_sets[i]) catch |e| {
+                            logger.log(.Error, "Failed to insert element in descriptor sets array", .{});
 
-                    allocator.free(layouts);
+                            return e;
+                        };
+                    }
 
                     return descriptor_sets;
                 }
 
-                fn destroy(self: Pool, device: Device) void {
+                fn destroy(self: *Pool, device: Device) void {
                     device.free_descriptor_sets(self.handle, self.descriptor_sets.items.len, self.descriptor_sets.items) catch {};
                 }
             };
@@ -1338,16 +1328,16 @@ pub const Vulkan = struct {
 
                     break :blk sets;
                 } else {
-                    try self.pools.push(try Pool.new(device, self.arena.allocator(), self.layouts.items[layout_id], self.size_each));
-                    break :blk try self.pools.items[self.pools.items.len - 1].allocate(device, count, self.arena.allocator());
+                    try self.pools.push(try Pool.new(device, allocator, self.layouts.items[layout_id], self.size_each));
+                    break :blk try self.pools.items[self.pools.items.len - 1].allocate(device, count, allocator);
                 };
 
                 return descriptor_sets;
             }
 
-            fn destroy(self: Descriptor, device: Device) void {
-                for (self.pools.items) |pool| {
-                    pool.destroy(device);
+            fn destroy(self: *Descriptor, device: Device) void {
+                for (0..self.pools.items.len) |i| {
+                    self.pools.items[i].destroy(device);
                 }
 
                 for (self.layouts.items) |layout| {
@@ -1395,7 +1385,7 @@ pub const Vulkan = struct {
 
             defer device.destroy_shader_module(frag_module);
 
-            const shader_stage_infos = [_]c.VkPipelineShaderStageCreateInfo {
+            const shader_stage_infos = &[_]c.VkPipelineShaderStageCreateInfo {
                 .{
                     .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                     .stage = c.VK_SHADER_STAGE_VERTEX_BIT,
@@ -1410,11 +1400,11 @@ pub const Vulkan = struct {
                 },
             };
 
-            const dynamic_states = [_]c.VkDynamicState { c.VK_DYNAMIC_STATE_VIEWPORT, c.VK_DYNAMIC_STATE_SCISSOR };
+            const dynamic_states = &[_]c.VkDynamicState { c.VK_DYNAMIC_STATE_VIEWPORT, c.VK_DYNAMIC_STATE_SCISSOR };
             const dynamic_state_info: c.VkPipelineDynamicStateCreateInfo = .{
                 .sType = c.VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
                 .dynamicStateCount = dynamic_states.len,
-                .pDynamicStates = &dynamic_states[0],
+                .pDynamicStates = dynamic_states.ptr,
             };
 
             const vertex_input_state_info: c.VkPipelineVertexInputStateCreateInfo = .{
@@ -1422,7 +1412,7 @@ pub const Vulkan = struct {
                 .vertexBindingDescriptionCount = 1,
                 .pVertexBindingDescriptions = &Data.Model.Vertex.binding_description,
                 .vertexAttributeDescriptionCount = Data.Model.Vertex.attribute_descriptions.len,
-                .pVertexAttributeDescriptions = &Data.Model.Vertex.attribute_descriptions[0],
+                .pVertexAttributeDescriptions = Data.Model.Vertex.attribute_descriptions.ptr,
             };
 
             const input_assembly_state_info: c.VkPipelineInputAssemblyStateCreateInfo = .{
@@ -1520,7 +1510,7 @@ pub const Vulkan = struct {
             const layout = device.create_pipeline_layout(.{
                 .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                 .setLayoutCount = 2,
-                .pSetLayouts = &(&.{descriptor_set_layout, descriptor_set_layout})[0],
+                .pSetLayouts = &[_] c.VkDescriptorSetLayout {descriptor_set_layout, descriptor_set_layout},
                 .pushConstantRangeCount = 0,
                 .pPushConstantRanges = null,
             }) catch |e| {
@@ -1529,7 +1519,12 @@ pub const Vulkan = struct {
                 return e;
             };
 
-            var descriptor = try Descriptor.new(16);
+            var descriptor = Descriptor.new(16) catch |e| {
+                logger.log(.Error, "Failed to create descriptor pool handle", .{});
+
+                return e;
+            };
+
             _ = try descriptor.add_layout(descriptor_set_layout);
 
             const formats = instance.get_physical_device_surface_formats(device.physical_device, window.surface, allocator) catch |e| {
@@ -1548,7 +1543,7 @@ pub const Vulkan = struct {
                 break :blk formats[0];
             };
 
-            const depth_formats = [_]c.VkFormat {
+            const depth_formats = [_] c.VkFormat {
                 c.VK_FORMAT_D32_SFLOAT,
                 c.VK_FORMAT_D32_SFLOAT_S8_UINT,
                 c.VK_FORMAT_D24_UNORM_S8_UINT,
@@ -1569,7 +1564,7 @@ pub const Vulkan = struct {
             const render_pass = device.create_render_pass(.{
                 .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
                 .attachmentCount = 2,
-                .pAttachments = &[_]c.VkAttachmentDescription {
+                .pAttachments = &[_] c.VkAttachmentDescription {
                     .{
                         .format = format.format,
                         .samples = c.VK_SAMPLE_COUNT_1_BIT,
@@ -1622,7 +1617,7 @@ pub const Vulkan = struct {
             const handle = device.create_graphics_pipeline(.{
                 .sType = c.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
                 .stageCount = shader_stage_infos.len,
-                .pStages = &shader_stage_infos[0],
+                .pStages = shader_stage_infos.ptr,
                 .pVertexInputState = &vertex_input_state_info,
                 .pInputAssemblyState = &input_assembly_state_info,
                 .pViewportState = &viewport_state_info,
@@ -1651,7 +1646,7 @@ pub const Vulkan = struct {
             };
         }
 
-        fn destroy(self: GraphicsPipeline, device: Device) void {
+        fn destroy(self: *GraphicsPipeline, device: Device) void {
             self.descriptor.destroy(device);
             device.destroy_pipeline_layout(self.layout);
             device.destroy_render_pass(self.render_pass);
@@ -1679,13 +1674,13 @@ pub const Vulkan = struct {
                 device.cmd_begin_render_pass(self.handle, .{
                     .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
                     .renderPass = pipeline.render_pass,
-                    .framebuffer = swapchain.framebuffers[self.id],
+                    .framebuffer = swapchain.framebuffers.items[self.id],
                     .renderArea = .{
                         .offset = .{ .x = 0, .y = 0 },
                         .extent = swapchain.extent,
                     },
                     .clearValueCount = 2,
-                    .pClearValues= &[_]c.VkClearValue {
+                    .pClearValues= &[_] c.VkClearValue {
                         .{
                             .color = .{ .float32 = .{0.0, 0.0, 0.0, 1.0}, }
                         },
@@ -1712,29 +1707,25 @@ pub const Vulkan = struct {
                 device.cmd_bind_pipeline(self.handle, pipeline.handle);
 
                 for (0..data.models.len) |i| {
-                    if (data.models[i].typ == .None) continue;
+                    if (data.models[i].len == 0) continue;
+
                     device.cmd_bind_vertex_buffer(self.handle, data.models[i].vertex.handle);
                     device.cmd_bind_index_buffer(self.handle, data.models[i].index.handle);
 
                     for (data.models[i].items.items) |item| {
-                        var descriptors = [_]c.VkDescriptorSet {data.global.descriptor_set, item.descriptor_set};
-
-                        device.cmd_bind_descriptor_sets(self.handle, pipeline.layout, 0, 2, &descriptors, null);
+                        device.cmd_bind_descriptor_sets(self.handle, pipeline.layout, 0, 2, &[_] c.VkDescriptorSet {data.global.descriptor_set, item.descriptor_set}, null);
                         device.cmd_draw_indexed(self.handle, data.models[i].len);
                     }
                 }
 
                 device.end_render_pass(self.handle);
-                device.end_command_buffer(self.handle) catch {
-                    logger.log(.Warn, "Failed to end command buffer", .{});
-                };
+                try device.end_command_buffer(self.handle);
 
                 self.is_valid = true;
             }
         };
 
-
-        fn invalidate(self: *CommandPool) void {
+        fn invalidate_all(self: *CommandPool) void {
             for (0..self.buffers.items.len) |i| {
                 self.buffers.items[i].is_valid = false;
             }
@@ -1753,13 +1744,14 @@ pub const Vulkan = struct {
 
                 return e;
             };
-            const count: u32 = @intCast(swapchain.framebuffers.len);
+
+            const count: u32 = @intCast(swapchain.framebuffers.items.len);
             var buffers = try ArrayList(Buffer).init(allocator, count);
             const bs = device.allocate_command_buffers(.{
-                .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-                .commandPool = handle,
-                .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-                .commandBufferCount = count,
+                    .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                    .commandPool = handle,
+                    .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                    .commandBufferCount = count,
                 }, allocator) catch |e| {
                 logger.log(.Error, "Failed to allocate command buffer", .{});
 
@@ -1849,7 +1841,6 @@ pub const Vulkan = struct {
                 descriptor: *GraphicsPipeline.Descriptor,
                 allocator: std.mem.Allocator
             ) !Global {
-                var mapped: *Uniform = undefined;
                 const buffer = try Buffer.new(
                     device,
                     memory_properties,
@@ -1861,20 +1852,17 @@ pub const Vulkan = struct {
                     allocator
                 );
 
+                var mapped: *Uniform = undefined;
                 try device.map_memory(buffer.memory, Uniform, 1, @ptrCast(&mapped));
-                @memcpy(@as([*]Uniform, @ptrCast(@alignCast(mapped))), &[_]Uniform {
-                    .{
-                        .view = Matrix.scale(1.0, -1.0, 1.0),
-                        .proj = Matrix.scale(1.0, 1.0, 1.0),
-                    }
-                });
+                mapped.view = Matrix.scale(1.0, 1.0, 1.0);
+                mapped.proj = Matrix.scale(1.0, 1.0, 1.0);
 
-                const descriptor_sets = try descriptor.allocate(device, 0, 1);
+                const descriptor_set = (try descriptor.allocate(device, 0, 1))[0];
 
                 device.update_descriptor_sets(.{
                     .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                     .descriptorType = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    .dstSet = descriptor_sets[0],
+                    .dstSet = descriptor_set,
                     .dstBinding = 0,
                     .dstArrayElement = 0,
                     .descriptorCount = 1,
@@ -1890,7 +1878,7 @@ pub const Vulkan = struct {
                 return .{
                     .buffer = buffer,
                     .mapped = mapped,
-                    .descriptor_set = descriptor_sets[0],
+                    .descriptor_set = descriptor_set,
                 };
             }
 
@@ -1905,8 +1893,7 @@ pub const Vulkan = struct {
 
             index: Buffer = undefined,
             vertex: Buffer = undefined,
-            len: u32 = undefined,
-            typ: Object.Type = .None,
+            len: u32 = 0,
 
             const Item = struct {
                 descriptor_set: c.VkDescriptorSet,
@@ -1942,14 +1929,14 @@ pub const Vulkan = struct {
                     );
 
                     try device.map_memory(buffer.memory, Uniform, 1, @ptrCast(&mapped));
-                    @memcpy(@as([*]Uniform, @ptrCast(@alignCast(mapped))), &[_]Uniform { uniform });
+                    mapped.* = uniform;
 
-                    const descriptor_sets = try descriptor.allocate(device, 0, 1);
+                    const descriptor_set = (try descriptor.allocate(device, 0, 1))[0];
 
                     device.update_descriptor_sets(.{
                         .sType = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                         .descriptorType = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                        .dstSet = descriptor_sets[0],
+                        .dstSet = descriptor_set,
                         .dstBinding = 0,
                         .dstArrayElement = 0,
                         .descriptorCount = 1,
@@ -1963,7 +1950,7 @@ pub const Vulkan = struct {
                     });
 
                     return .{
-                        .descriptor_set = descriptor_sets[0],
+                        .descriptor_set = descriptor_set,
                         .mapped = mapped,
                         .buffer = buffer,
                     };
@@ -1977,51 +1964,54 @@ pub const Vulkan = struct {
 
             const Vertex = struct {
                 position: [3]f32,
-                color: [3]f32,
-
-                const Self = @This();
+                color: [3]f32 = .{1.0, 1.0, 1.0},
 
                 const binding_description: c.VkVertexInputBindingDescription = .{
                     .binding = 0,
-                    .stride = @sizeOf(Self),
+                    .stride = @sizeOf(Vertex),
                     .inputRate = c.VK_VERTEX_INPUT_RATE_VERTEX,
                 };
 
-                const attribute_descriptions: [2]c.VkVertexInputAttributeDescription = .{
+                const attribute_descriptions = &[_]c.VkVertexInputAttributeDescription {
                     .{
                         .binding = 0,
                         .location = 0,
                         .format = c.VK_FORMAT_R32G32B32_SFLOAT,
-                        .offset = @offsetOf(Self, "position"),
+                        .offset = @offsetOf(Vertex, "position"),
                     },
                     .{
                         .binding = 0,
                         .location = 1,
                         .format = c.VK_FORMAT_R32G32B32_SFLOAT,
-                        .offset = @offsetOf(Self, "color"),
+                        .offset = @offsetOf(Vertex, "color"),
                     },
                 };
             };
 
-            fn new(device: Device, memory_properties: c.VkPhysicalDeviceMemoryProperties, allocator: std.mem.Allocator, typ: Object.Type) !Model {
+            fn new(
+                device: Device,
+                memory_properties: c.VkPhysicalDeviceMemoryProperties,
+                allocator: std.mem.Allocator,
+                typ: Object.Type
+            ) !Model {
                 const object = try Object.new(typ, allocator);
+                const Index = @TypeOf(object.index.items[0]);
                 const index = try Buffer.new(
                     device,
                     memory_properties,
                     c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                     c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                    @TypeOf(object.index.items[0]),
-                    object.index.items,
+                    Index,
+                    object.index,
                     object.index.items.len,
                     allocator,
                 );
 
-                var vertices = try allocator.alloc(Vertex, object.vertex.items.len);
-                for (object.vertex.items, 0..) |vert, i| {
-                    vertices[i] = .{
+                var vertices = try ArrayList(Vertex).init(allocator, @intCast(object.vertex.items.len));
+                for (object.vertex.items) |vert| {
+                    try vertices.push(.{
                         .position = .{vert.x, vert.y, vert.z},
-                        .color = .{1.0, 1.0, 1.0},
-                    };
+                    });
                 }
 
                 const vertex = try Buffer.new(
@@ -2029,9 +2019,9 @@ pub const Vulkan = struct {
                     memory_properties,
                     c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                     c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                    @TypeOf(vertices[0]),
+                    Vertex,
                     vertices,
-                    vertices.len,
+                    vertices.items.len,
                     allocator
                 );
 
@@ -2040,9 +2030,8 @@ pub const Vulkan = struct {
                 return .{
                     .index = index,
                     .vertex = vertex,
-                    .typ = typ,
-                    .len = @intCast(object.index.items.len),
                     .items = items,
+                    .len = @intCast(object.index.items.len)
                 };
             }
 
@@ -2059,6 +2048,7 @@ pub const Vulkan = struct {
             }
 
             fn destroy(self: Model, device: Device) void {
+                if (self.len == 0) return;
                 for (self.items.items) |item| {
                     item.destroy(device);
                 }
@@ -2078,7 +2068,7 @@ pub const Vulkan = struct {
                 opt_usage: ?c.VkBufferUsageFlags,
                 opt_properties: ?c.VkMemoryPropertyFlags,
                 comptime T: type,
-                data: ?[]const T,
+                data: ?ArrayList(T),
                 len: usize,
                 allocator: std.mem.Allocator,
             ) !Buffer {
@@ -2115,7 +2105,7 @@ pub const Vulkan = struct {
                     const staging_buffer = try Buffer.new(device, memory_properties, null, null, T, null, len, allocator);
                     var dst: *T = undefined;
                     try device.map_memory(staging_buffer.memory, T, len, @ptrCast(&dst));
-                    @memcpy(@as([*]T, @ptrCast(@alignCast(dst))), b);
+                    @memcpy(@as([*]T, @ptrCast(@alignCast(dst))), b.items);
                     device.unmap_memory(staging_buffer.memory);
 
                     const command_pool = device.create_command_pool(.{
@@ -2183,11 +2173,8 @@ pub const Vulkan = struct {
             var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
             const allocator = arena.allocator();
 
-            var models = try allocator.alloc(Model, @intFromEnum(Object.Type.None));
-
-            for (0..models.len) |i| {
-                models[i] = .{};
-            }
+            const models = try allocator.alloc(Model, @intFromEnum(Object.Type.None));
+            @memset(models, .{});
 
             return .{
                 .global = try Global.new(device, memory_properties, descriptor, allocator),
@@ -2211,7 +2198,7 @@ pub const Vulkan = struct {
                     const object = game.object_handle.objects.items[update.id];
                     const k = @intFromEnum(object.typ);
 
-                    if (self.models[k].typ == .None) {
+                    if (self.models[k].len == 0) {
                         self.models[k] = try Model.new(device, memory_properties, allocator, object.typ);
                     }
 
@@ -2224,7 +2211,7 @@ pub const Vulkan = struct {
                                 .color = object.color,
                                 }, descriptor, allocator);
 
-                            command_pool.invalidate();
+                            command_pool.invalidate_all();
                         },
                     }
                 }
@@ -2241,7 +2228,6 @@ pub const Vulkan = struct {
             self.global.destroy(device);
 
             for (self.models) |model| {
-                if (model.typ == .None) continue;
                 model.destroy(device);
             }
 
@@ -2250,11 +2236,14 @@ pub const Vulkan = struct {
     };
 
     pub fn new() !Vulkan {
-        defer { _ = SNAP_ARENA.deinit(); }
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        const allocator = arena.allocator();
+
+        defer { _ = arena.deinit(); }
 
         try Platform.init();
 
-        const instance = Instance.new(SNAP_ALLOCATOR) catch |e| {
+        const instance = Instance.new(allocator) catch |e| {
             logger.log(.Error, "Failed to create instance", .{});
 
             return e;
@@ -2266,13 +2255,13 @@ pub const Vulkan = struct {
             return e;
         };
 
-        const device = Device.new(instance, window.surface, SNAP_ALLOCATOR) catch |e| {
+        const device = Device.new(instance, window.surface, allocator) catch |e| {
             logger.log(.Error, "Failed to create device", .{});
 
             return e;
         };
 
-        var graphics_pipeline = GraphicsPipeline.new(device, instance, window, SNAP_ALLOCATOR) catch |e| {
+        var graphics_pipeline = GraphicsPipeline.new(device, instance, window, allocator) catch |e| {
             logger.log(.Error, "Failed to create graphics_pipeline", .{});
 
             return e;
@@ -2300,7 +2289,6 @@ pub const Vulkan = struct {
 
             return e;
         };
-
 
         return .{
             .instance = instance,

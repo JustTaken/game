@@ -24,16 +24,7 @@ pub fn ArrayList(comptime T: type) type {
 
         pub fn push(self: *Self, item: T) !void {
             if (self.items.len >= self.capacity) {
-                self.capacity += grow_factor;
-                if (!self.allocator.resize(self.items, self.capacity)) {
-                    const old_memory = self.items.ptr[0..self.items.len];
-                    const new_memory  = try self.allocator.alloc(T, self.capacity);
-
-                    @memcpy(new_memory[0..self.items.len], self.items);
-
-                    self.allocator.free(old_memory);
-                    self.items.ptr = new_memory.ptr;
-                }
+                try self.resize(self.capacity + grow_factor);
             }
 
             self.items.len += 1;
@@ -45,13 +36,20 @@ pub fn ArrayList(comptime T: type) type {
         }
 
         pub fn clear(self: *Self) !void {
-            self.capacity = 1;
-            const old_memory = self.items.ptr[0..self.items.len];
-            const new_memory  = try self.allocator.alloc(T, self.capacity);
-
-            self.allocator.free(old_memory);
-            self.items.ptr = new_memory.ptr;
             self.items.len = 0;
+            try self.resize(1);
+        }
+
+        fn resize(self: *Self, capacity: u32) !void {
+            const len = self.items.len;
+
+            self.items = try self.allocator.realloc(self.items.ptr[0..self.capacity], capacity);
+            self.capacity = capacity;
+            self.items.len = len;
+        }
+
+        pub fn deinit(self: Self) void {
+            self.allocator.free(self.items.ptr[0..self.capacity]);
         }
     };
 }

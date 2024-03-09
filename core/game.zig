@@ -2,7 +2,7 @@ const std = @import("std");
 
 const _collections = @import("util/collections.zig");
 const _math = @import("util/math.zig");
-const _assets = @import("renderer/assets.zig");
+const _object = @import("asset/object.zig");
 const _event = @import("event.zig");
 const _platform = @import("renderer/platform.zig");
 const _configuration = @import("util/configuration.zig");
@@ -10,20 +10,18 @@ const _configuration = @import("util/configuration.zig");
 const Vec = _math.Vec;
 const Matrix = _math.Matrix;
 const ArrayList = _collections.ArrayList;
-const ObjectType = _assets.Object.Type;
+const ObjectType = _object.Object.Type;
 const EventSystem = _event.EventSystem;
 const Platform = _platform.Platform;
 const configuration = _configuration.Configuration;
 
-var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-const allocator = arena.allocator();
-
 pub const Game = struct {
     object_handle: ObjectHandle,
     camera: Camera,
+    allocator: std.mem.Allocator,
 
-    pub fn new() !Game {
-        var object_handle = try ObjectHandle.new();
+    pub fn new(allocator: std.mem.Allocator) !Game {
+        var object_handle = try ObjectHandle.new(allocator);
         for (0..5) |i| {
             try object_handle.add_object(.{
                 .model = Matrix.translate(0.0, 0.0, @as(f32, @floatFromInt(i)) * 2),
@@ -39,6 +37,7 @@ pub const Game = struct {
         });
 
         return .{
+            .allocator = allocator,
             .object_handle = object_handle,
             .camera = Camera.init(.{
                 .x = 0.0,
@@ -52,8 +51,8 @@ pub const Game = struct {
         _ = self;
     }
 
-    pub fn shutdown(_: *Game) void {
-        _ = arena.deinit();
+    pub fn shutdown(self: *Game) void {
+        self.object_handle.shutdown();
     }
 
     fn render(_: *Game) !void {}
@@ -137,11 +136,16 @@ pub const ObjectHandle = struct {
         try self.to_update.push(update);
     }
 
-    fn new() !ObjectHandle {
+    fn new(allocator: std.mem.Allocator) !ObjectHandle {
         return .{
             .objects = try ArrayList(Object).init(allocator, 0),
             .to_update = try ArrayList(Update).init(allocator, 0),
         };
+    }
+
+    fn shutdown(self: *ObjectHandle) void {
+        self.objects.deinit();
+        self.to_update.deinit();
     }
 
     const Object = struct {
@@ -182,13 +186,6 @@ pub const Camera = struct {
         [4]f32 { 0.0, 0.0, 1.0, 0.0 },
         [4]f32 { 0.0, 1.0, 0.0, 0.0 },
         [4]f32 { -1.0, 0.0, 0.0, 0.0 },
-        [4]f32 { 0.0, 0.0, 0.0, 1.0 },
-    };
-
-    const x_rotation: [4][4]f32 = .{
-        [4]f32 { 1.0, 0.0, 0.0, 0.0 },
-        [4]f32 { 0.0, 0.0, -1.0, 0.0 },
-        [4]f32 { 0.0, 1.0, 0.0, 0.0 },
         [4]f32 { 0.0, 0.0, 0.0, 1.0 },
     };
 
@@ -243,12 +240,12 @@ pub const Camera = struct {
         const self: *Camera = @alignCast(@ptrCast(ptr));
 
         switch (argument.i32[0]) {
-            Platform.Space => self.up(0.01),
-            Platform.Control => self.down(0.01),
-            Platform.W => self.foward(0.01),
-            Platform.A => self.left(0.01),
-            Platform.S => self.backward(0.01),
-            Platform.D => self.right(0.01),
+            Platform.Space => self.up(0.1),
+            Platform.Control => self.down(0.1),
+            Platform.W => self.foward(0.1),
+            Platform.A => self.left(0.1),
+            Platform.S => self.backward(0.1),
+            Platform.D => self.right(0.1),
             Platform.C => self.centralize(),
             else => { },
         }
@@ -258,9 +255,7 @@ pub const Camera = struct {
 
     pub fn listen_mouse(ptr: *anyopaque, argument: EventSystem.Argument) bool {
         const self: *Camera = @alignCast(@ptrCast(ptr));
-        // _ = argument;
         self.mouse(argument.f32[0] * 0.001, argument.f32[1] * 0.001);
-        // self.mouse(0, 0);
         return false;
     }
 
@@ -322,11 +317,12 @@ pub const Camera = struct {
             .y = 0,
             .z = -1,
         };
+
         self.view = .{
             [4]f32 { 1.0, 0.0, 0.0, 0.0 },
             [4]f32 { 0.0, -1.0, 0.0, 0.0 },
             [4]f32 { 0.0, 0.0, 1.0, 0.0 },
-            [4]f32 { 0.0, 0.0, 0.0, 1.0 },
+            [4]f32 { 0.0, 0.0, 1.0, 1.0 },
         };
 
         self.changed = true;

@@ -7,6 +7,7 @@ pub fn build(b: *std.Build) void {
         "core",
         .{ .root_source_file = .{ .path = "core/lib.zig" } }
     );
+
     const exe = b.addExecutable(.{
         .name = "engine",
         .root_source_file = .{ .path = "src/main.zig" },
@@ -25,4 +26,18 @@ pub fn build(b: *std.Build) void {
 
     const run_step = b.step("run", "Run vulkan application");
     run_step.dependOn(&run_cmd.step);
+
+    const unit_tests = b.addTest(.{
+        .root_source_file = .{ .path = "src/test.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+
+    unit_tests.linkLibC();
+    unit_tests.linkSystemLibrary("glfw");
+    unit_tests.root_module.addImport("core", core);
+
+    const run_test = b.addRunArtifact(unit_tests);
+    const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&run_test.step);
 }

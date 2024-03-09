@@ -4,6 +4,7 @@ const _game = @import("game.zig");
 const _event = @import("event.zig");
 const _config = @import("util/configuration.zig");
 const _renderer = @import("renderer/backend.zig");
+const _font = @import("asset/font.zig");
 const _vulkan =  @import("renderer/vulkan.zig");
 
 const Game = _game.Game;
@@ -20,7 +21,7 @@ pub fn Application(comptime renderer: Renderer) type {
         switch (renderer) {
             .Vulkan => break :blk Vulkan,
             .OpenGL => logger.log(.Fatal, "OpenGL renderer not implemented yet", .{}),
-            .X12 => logger.log(.Fatal, "DirectX12 renderer not implemented yet", .{}),
+            .X12    => logger.log(.Fatal, "DirectX12 renderer not implemented yet", .{}),
         }
 
         unreachable;
@@ -33,21 +34,21 @@ pub fn Application(comptime renderer: Renderer) type {
 
         const Self = @This();
 
-        pub fn new() Self {
-            const game = Game.new() catch {
+        pub fn new(allocator: std.mem.Allocator) Self {
+            const game: Game = Game.new(allocator) catch {
                 logger.log(.Fatal, "Could not create game instance", .{});
 
                 unreachable;
             };
 
-            const event_system = EventSystem.new() catch {
+            const event_system: EventSystem = EventSystem.new() catch {
                 logger.log(.Fatal, "Could not create event handle system", .{});
 
                 unreachable;
             };
 
 
-            const backend = Backend(T).new() catch {
+            const backend: Backend(T) = Backend(T).new() catch {
                 logger.log(.Fatal, "Failed to initialize backend", .{});
 
                 unreachable;
