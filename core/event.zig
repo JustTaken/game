@@ -13,6 +13,7 @@ const logger = _config.Configuration.logger;
 const ObjectHandle = _game.ObjectHandle;
 const Game = _game.Game;
 const Backend = _backend.Backend;
+const Renderer = _backend.Renderer;
 
 var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 const allocator = arena.allocator();
@@ -20,7 +21,6 @@ const allocator = arena.allocator();
 pub const EventSystem = struct {
     events: []Event,
     state: State,
-    clock: f64,
     arena: std.heap.ArenaAllocator,
 
     var cursor: Cursor = .{
@@ -141,7 +141,6 @@ pub const EventSystem = struct {
         return .{
             .events = events,
             .state = .Running,
-            .clock = Platform.get_time(),
             .arena = arena,
         };
     }
@@ -154,7 +153,7 @@ pub const EventSystem = struct {
         return try self.events[@intFromEnum(code)].new_emiter();
     }
 
-    pub fn init(self: *EventSystem, window: *Platform.Window, game: *Game, comptime T: type, backend: *Backend(T)) void {
+    pub fn init(self: *EventSystem, window: *Platform.Window, game: *Game, comptime renderer: Renderer, backend: *Backend(renderer)) void {
         self.add_listener(game.camera.handler_resize(), .WindowResize) catch {
             logger.log(.Fatal,"Could not register camera in resize window event system", .{});
         };
@@ -192,8 +191,6 @@ pub const EventSystem = struct {
 
     pub fn input(self: *EventSystem, window: *Platform.Window) void {
         Platform.poll_events();
-        const current_time = Platform.get_time();
-        self.clock = current_time;
 
         for (0..self.events.len) |i| {
             for (0..self.events[i].emiters.items.len) |k| {

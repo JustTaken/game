@@ -8,10 +8,14 @@ const Vec = _math.Vec;
 pub const Io = struct {
     pub const Reader = struct {
         file: std.fs.File,
+        failed: bool = false,
 
-        pub fn read(self: Reader, comptime size: u32) [size] u8 {
+        pub fn read(self: *Reader, comptime size: u32) [size] u8 {
             var buffer: [size] u8 = undefined;
-            _ = self.file.read(&buffer) catch 0;
+            _ = self.file.read(&buffer) catch blk: {
+                self.failed = true;
+                break :blk 0;
+            };
 
             return buffer;
         }

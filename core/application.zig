@@ -3,33 +3,22 @@ const std = @import("std");
 const _game = @import("game.zig");
 const _event = @import("event.zig");
 const _config = @import("util/configuration.zig");
-const _renderer = @import("renderer/backend.zig");
+const _backend = @import("renderer/backend.zig");
 const _font = @import("asset/font.zig");
 const _vulkan =  @import("renderer/vulkan.zig");
 
 const Game = _game.Game;
-const Vulkan = _vulkan.Vulkan;
-const Backend = _renderer.Backend;
-const Renderer = _renderer.Renderer;
+const Backend = _backend.Backend;
+const Renderer = _backend.Renderer;
 const EventSystem = _event.EventSystem;
 const Configuration = _config.Configuration;
 
 pub const logger = Configuration.logger;
 
 pub fn Application(comptime renderer: Renderer) type {
-    const T = blk: {
-        switch (renderer) {
-            .Vulkan => break :blk Vulkan,
-            .OpenGL => logger.log(.Fatal, "OpenGL renderer not implemented yet", .{}),
-            .X12    => logger.log(.Fatal, "DirectX12 renderer not implemented yet", .{}),
-        }
-
-        unreachable;
-    };
-
     return struct {
         game: Game,
-        backend: Backend(T),
+        backend: Backend(renderer),
         event_system: EventSystem,
 
         const Self = @This();
@@ -48,7 +37,7 @@ pub fn Application(comptime renderer: Renderer) type {
             };
 
 
-            const backend: Backend(T) = Backend(T).new() catch {
+            const backend: Backend(renderer) = Backend(renderer).new() catch {
                 logger.log(.Fatal, "Failed to initialize backend", .{});
 
                 unreachable;
@@ -64,7 +53,7 @@ pub fn Application(comptime renderer: Renderer) type {
         }
 
         pub fn run(self: *Self) void {
-            self.event_system.init(self.backend.window, &self.game, T, &self.backend);
+            self.event_system.init(self.backend.window, &self.game, renderer, &self.backend);
             while (self.event_system.state != .Closing) {
                 if (self.event_system.state != .Suspended) {
                     self.backend.draw(&self.game) catch {

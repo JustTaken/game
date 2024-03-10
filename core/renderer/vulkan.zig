@@ -331,6 +331,7 @@ pub const Vulkan = struct {
 
                     return e;
                 };
+
                 defer allocator.free(physical_devices);
 
                 var points: u32 = 1;
@@ -344,6 +345,7 @@ pub const Vulkan = struct {
 
                             break :rate 0;
                         };
+
                         defer allocator.free(extensions_properties);
 
                         ext: for (REQUIRED_DEVICE_EXTENSIONS) |extension| {
@@ -687,7 +689,8 @@ pub const Vulkan = struct {
         }
 
         fn wait_for_fences(self: Device, fence: *c.VkFence) !void {
-            const MAX: u64 = 0xFFFFFFFFFFFFFFFF;
+            // const MAX: u64 = 0xFFFFFFFFFFFFFFFF;
+            const MAX: u64 = 0xFFFFFF;
             try check(self.dispatch.wait_for_fences(self.handle, 1, fence, c.VK_TRUE, MAX));
         }
 
@@ -803,7 +806,7 @@ pub const Vulkan = struct {
         }
 
         fn destroy_command_pool(self: Device, command_pool: c.VkCommandPool) void {
-            self.dispatch.destroy_command_pool(self.handle, command_pool);
+            self.dispatch.destroy_command_pool(self.handle, command_pool, null);
         }
 
         fn destroy_swapchain(self: Device, swapchain: c.VkSwapchainKHR) void {
@@ -896,10 +899,9 @@ pub const Vulkan = struct {
                 if (capabilities.currentExtent.width != 0xFFFFFFFF) {
                     break :blk capabilities.currentExtent;
                 } else {
-                    const window_extent = Platform.get_framebuffer_size(window.handle);
                     break :blk .{
-                        .width = std.math.clamp(window_extent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
-                        .height = std.math.clamp(window_extent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height),
+                        .width = std.math.clamp(window.extent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
+                        .height = std.math.clamp(window.extent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height),
                     };
                 }
             };
@@ -936,7 +938,7 @@ pub const Vulkan = struct {
                 .pQueueFamilyIndices = uniques_queue_family_index.items.ptr,
                 .oldSwapchain = null,
             }) catch |e| {
-                logger.log(.Debug, "Failed to create sawpchain", .{});
+                logger.log(.Error, "Failed to create sawpchain", .{});
 
                 return e;
             };
@@ -1090,10 +1092,6 @@ pub const Vulkan = struct {
             };
         }
 
-        fn has_to_recreate(e: VkResult) bool {
-            return (e == VkResult.SuboptimalKhr or e == VkResult.OutOfDateKhr);
-        }
-
         fn recreate(
             self: *Swapchain,
             device: Device,
@@ -1101,35 +1099,49 @@ pub const Vulkan = struct {
             pipeline: GraphicsPipeline,
             window: *Window,
             command_pool: *CommandPool,
+            sync: *Sync
         ) !void {
+            device.queue_wait_idle(device.queues[0].handle) catch {
+                logger.log(.Error, "device did not wait for present queue", .{});
+
+                return;
+            };
+
             while (true) {
                 const extent = Platform.get_framebuffer_size(window.handle);
+                sync.nanos_per_frame = Platform.get_nanos_per_frame(window.handle) catch blk: {
+                    break :blk Sync.default;
+                };
 
                 if (extent.width == 0 or extent.height == 0) {
                     Platform.wait_events();
-                } else if (extent.width != window.width or extent.height != window.height) {
-                    window.width = extent.width;
-                    window.height = extent.height;
-                    window.last_resize = Platform.get_time();
+                } else if (extent.width != window.extent.width or extent.height != window.extent.height) {
+                    window.extent.width = extent.width;
+                    window.extent.height = extent.height;
                     window.emiter.value = .{
-                        .u32 = .{ window.width, window.height },
+                        .u32 = .{ extent.width, extent.height },
                     };
 
                     window.emiter.changed = true;
-                } else if ((Platform.get_time() - window.last_resize) >= 0.5) {
+                } else {
                     break;
                 }
 
-                std.time.sleep(250000);
+                std.time.sleep(60 * Sync.default);
             }
 
+
             self.destroy(device);
+
             const new_swapchain = try Swapchain.new(device, instance, window.*, pipeline, self.arena);
 
             self.handle = new_swapchain.handle;
-            self.image_views = new_swapchain.image_views;
             self.extent = new_swapchain.extent;
+            self.image_views = new_swapchain.image_views;
             self.framebuffers = new_swapchain.framebuffers;
+            self.depth_image_view = new_swapchain.depth_image_view;
+            self.depth_image_memory = new_swapchain.depth_image_memory;
+            self.arena = new_swapchain.arena;
 
             command_pool.invalidate_all();
         }
@@ -1138,9 +1150,40 @@ pub const Vulkan = struct {
             return try device.acquire_next_image(self.handle, sync.image_available);
         }
 
-        fn queue_pass(self: Swapchain, device: Device, pipeline: GraphicsPipeline, command_pool: *CommandPool, sync: Sync, data: Data, index: u32) !void {
-            if (!(command_pool.buffers.items[index].is_valid)) {
-                command_pool.buffers.items[index].record(device, pipeline, self, data) catch {
+        fn draw_next_frame(
+            self: *Swapchain,
+            device: Device,
+            instance: Instance,
+            pipeline: GraphicsPipeline,
+            window: *Window,
+            command_pool: *CommandPool,
+            data: Data,
+            sync: *Sync
+        ) !void {
+            self.draw_frame(device, pipeline, command_pool, data, sync) catch |e| {
+                if(e == VkResult.SuboptimalKhr or e == VkResult.OutOfDateKhr) {
+                    try self.recreate(device, instance, pipeline, window, command_pool, sync);
+
+                    logger.log(.Debug, "Swapchain recreated", .{});
+                } else {
+                    return e;
+                }
+            };
+        }
+
+        fn draw_frame(
+            self: Swapchain,
+            device: Device,
+            pipeline: GraphicsPipeline,
+            command_pool: *CommandPool,
+            data: Data,
+            sync: *Sync,
+        ) !void {
+            const image_index = try self.acquire_next_image(device, sync.*);
+
+            if (!(command_pool.buffers.items[image_index].is_valid)) {
+                command_pool.buffers.items[image_index].record(device, pipeline, self, data) catch {
+                    return error.Else;
                 };
             }
 
@@ -1150,17 +1193,20 @@ pub const Vulkan = struct {
                 .pWaitSemaphores = &sync.image_available,
                 .pWaitDstStageMask = &@as(u32, @intCast(c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)),
                 .commandBufferCount = 1,
-                .pCommandBuffers = &command_pool.buffers.items[index].handle,
+                .pCommandBuffers = &command_pool.buffers.items[image_index].handle,
                 .signalSemaphoreCount = 1,
                 .pSignalSemaphores = &sync.render_finished,
                 }, sync.in_flight_fence);
+
+            sync.changed = true;
+
             try device.queue_present(.{
                 .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
                 .waitSemaphoreCount = 1,
                 .pWaitSemaphores = &sync.render_finished,
                 .swapchainCount = 1,
                 .pSwapchains = &self.handle,
-                .pImageIndices = &index,
+                .pImageIndices = &image_index,
                 .pResults = null,
             });
         }
@@ -1169,6 +1215,7 @@ pub const Vulkan = struct {
             device.free_memory(self.depth_image_memory);
             device.destroy_image_view(self.depth_image_view);
             device.destroy_swapchain(self.handle);
+
             _ = self.arena.reset(.free_all);
         }
     };
@@ -1176,14 +1223,12 @@ pub const Vulkan = struct {
     const Window = struct {
         handle: *Platform.Window,
         surface: c.VkSurfaceKHR,
-        last_resize: f64,
-        width: u32,
-        height: u32,
+        extent: c.VkExtent2D,
         emiter: *Emiter = undefined,
 
-        fn new(instance: Instance, width: u32, height: u32) !Window {
-            const handle = Platform.create_window(width, height, &configuration.application_name[0]) catch |e| {
-                logger.log(.Error, "Platform failed to create window", .{});
+        fn new(instance: Instance, extent: ?c.VkExtent2D) !Window {
+            const handle = Platform.create_window(extent, &configuration.application_name[0]) catch |e| {
+                logger.log(.Error, "Platform failed to create window handle", .{});
 
                 return e;
             };
@@ -1194,12 +1239,14 @@ pub const Vulkan = struct {
                 return e;
             };
 
+            const window_extent = extent orelse blk: {
+                break :blk Platform.get_framebuffer_size(handle);
+            };
+
             return .{
                 .handle = handle,
                 .surface = surface,
-                .width = width,
-                .height = height,
-                .last_resize = Platform.get_time(),
+                .extent = window_extent
             };
         }
 
@@ -1208,7 +1255,6 @@ pub const Vulkan = struct {
         }
 
         fn destroy(self: Window, instance: Instance) void {
-            logger.log(.Info, "Closing window", .{});
             instance.destroy_surface(self.surface);
             Platform.destroy_window(self.handle);
         }
@@ -1218,9 +1264,9 @@ pub const Vulkan = struct {
         handle: c.VkPipeline,
         layout: c.VkPipelineLayout,
         render_pass: c.VkRenderPass,
-        descriptor: Descriptor,
         format: c.VkSurfaceFormatKHR,
         depth_format: c.VkFormat,
+        descriptor: Descriptor,
 
         const Descriptor = struct {
             pools: ArrayList(Pool),
@@ -1772,9 +1818,9 @@ pub const Vulkan = struct {
             };
         }
 
-        fn destroy(self: CommandPool, device: Device) void {
-            for (self.buffers.items) |buffer| {
-                device.free_command_buffer(self.handle, buffer);
+        fn destroy(self: *CommandPool, device: Device) void {
+            for (0..self.buffers.items.len) |i| {
+                device.free_command_buffer(self.handle, self.buffers.items[i].handle);
             }
 
             device.destroy_command_pool(self.handle);
@@ -1786,8 +1832,20 @@ pub const Vulkan = struct {
         image_available: c.VkSemaphore,
         render_finished: c.VkSemaphore,
         in_flight_fence: c.VkFence,
+        timer: std.time.Timer,
+        nanos_per_frame: u32,
+        changed: bool = false,
 
-        fn new(device: Device) !Sync {
+        const default: u32 = @intCast(1000000000 / 60);
+
+        fn new(device: Device, window: Window) !Sync {
+            const timer = try std.time.Timer.start();
+
+            const nanos_per_frame = Platform.get_nanos_per_frame(window.handle) catch blk: {
+                logger.log(.Error, "Could not get the especific frame rate of window, using 60 fps as default", .{});
+                break :blk default;
+            };
+
             const image = try device.create_semaphore(.{
                 .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
             });
@@ -1805,12 +1863,28 @@ pub const Vulkan = struct {
                 .image_available = image,
                 .render_finished = render,
                 .in_flight_fence = fence,
+                .timer = timer,
+                .nanos_per_frame = nanos_per_frame,
             };
         }
 
-        fn wait(self: *Sync, device: Device) !void {
-            try device.wait_for_fences(&self.in_flight_fence);
-            try device.reset_fences(&self.in_flight_fence);
+        fn update(self: *Sync, device: Device) void {
+            if (self.changed) {
+                device.wait_for_fences(&self.in_flight_fence) catch {
+                    logger.log(.Error, "CPU did not wait for draw call", .{});
+                };
+                device.reset_fences(&self.in_flight_fence) catch {
+                    logger.log(.Error, "Failed to reset CPU fence", .{});
+                };
+
+                self.changed = false;
+            }
+
+            const delta = self.timer.lap();
+            if (delta < self.nanos_per_frame) {
+                std.time.sleep(self.nanos_per_frame - delta);
+                self.timer.reset();
+            }
         }
 
         fn destroy(self: Sync, device: Device) void {
@@ -2217,7 +2291,7 @@ pub const Vulkan = struct {
                 }
 
                 try game.object_handle.clear_updates();
-            } else if (game.camera.changed) {
+            } if (game.camera.changed) {
                 game.camera.changed = false;
                 self.global.mapped.view = game.camera.view;
                 self.global.mapped.proj = game.camera.proj;
@@ -2249,7 +2323,7 @@ pub const Vulkan = struct {
             return e;
         };
 
-        const window = Window.new(instance, configuration.default_width, configuration.default_height) catch |e| {
+        const window = Window.new(instance, .{.width = configuration.default_width, .height = configuration.default_height }) catch |e| {
             logger.log(.Error, "Failed to create window", .{});
 
             return e;
@@ -2272,7 +2346,8 @@ pub const Vulkan = struct {
 
             return e;
         };
-        const sync = Sync.new(device) catch |e| {
+
+        const sync = Sync.new(device, window) catch |e| {
             logger.log(.Error, "Failed to create sync objects", .{});
 
             return e;
@@ -2303,6 +2378,8 @@ pub const Vulkan = struct {
     }
 
     pub fn draw(self: *Vulkan, game: *Game) !void {
+        self.sync.update(self.device);
+
         if (game.object_handle.has_change() or game.camera.changed) {
             self.data.register_changes(
                 self.device,
@@ -2316,63 +2393,12 @@ pub const Vulkan = struct {
                 return e;
             };
 
-            try game.object_handle.clear_updates();
+            try self.swapchain.draw_next_frame(self.device, self.instance, self.graphics_pipeline, &self.window, &self.command_pool, self.data, &self.sync);
         }
-
-        const image_index = self.swapchain.acquire_next_image(self.device, self.sync) catch |e| {
-            if (Swapchain.has_to_recreate(e)) {
-                self.swapchain.recreate(
-                    self.device,
-                    self.instance,
-                    self.graphics_pipeline,
-                    &self.window,
-                    &self.command_pool
-                ) catch |e2| {
-                    logger.log(.Error, "Recreate swapchain failed, quiting", .{});
-
-                    return e2;
-                };
-
-                logger.log(.Debug, "Swapchain recreated", .{});
-
-                return;
-            } else {
-                logger.log(.Error, "Could not rescue the frame, dying", .{});
-
-                return e;
-            }
-        };
-
-        self.swapchain.queue_pass(self.device, self.graphics_pipeline, &self.command_pool, self.sync, self.data, image_index) catch |e| {
-            if (Swapchain.has_to_recreate(e)) {
-                self.swapchain.recreate(
-                    self.device,
-                    self.instance,
-                    self.graphics_pipeline,
-                    &self.window,
-                    &self.command_pool
-                ) catch |e2| {
-                    logger.log(.Error, "Swapchain recreation failed, quiting application", .{});
-
-                    return e2;
-                };
-
-                logger.log(.Debug, "Swapchain recreated", .{});
-
-                return;
-            } else {
-                logger.log(.Error, "Could not handle current frame presentation, dying", .{});
-
-                return e;
-            }
-        };
-
-        self.sync.wait(self.device) catch {
-            logger.log(.Warn, "CPU did not wait for next frame", .{});
-        };
     }
 
     pub fn shutdown(self: *Vulkan) void {
+        self.command_pool.destroy(self.device);
         self.data.destroy(self.device);
         self.sync.destroy(self.device);
         self.graphics_pipeline.destroy(self.device);

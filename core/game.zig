@@ -268,6 +268,7 @@ pub const Camera = struct {
             near,
             far
         );
+
         self.changed = true;
 
         return false;

@@ -6,8 +6,8 @@ pub const c = @cImport({
     @cInclude("vulkan/vulkan.h");
     @cInclude("GLFW/glfw3.h");
 });
-
-const logger = _config.Configuration.logger;
+const configuration = _config.Configuration;
+const logger = configuration.logger;
 
 pub const Platform = struct {
     pub const Window = c.GLFWwindow;
@@ -54,11 +54,22 @@ pub const Platform = struct {
         _ = c.glfwSetCharCallback(window, func);
     }
 
-    pub fn create_window(width: u32, height: u32, name: [*c]const u8) !*Window {
+    pub fn create_window(extent: ?c.VkExtent2D, name: [*c]const u8) !*Window {
         c.glfwWindowHint(c.GLFW_CLIENT_API, c.GLFW_NO_API);
+        const e = blk: {
+            if (extent) |e| {
+                break :blk e;
+            } else {
+                break :blk c.VkExtent2D {
+                    .width = configuration.default_width,
+                    .height = configuration.default_height,
+                };
+            }
+        };
 
-        return c.glfwCreateWindow(@intCast(width), @intCast(height), name, null, null) orelse error.WindowInit;
+        return c.glfwCreateWindow(@intCast(e.width), @intCast(e.height), name, c.glfwGetPrimaryMonitor(), null) orelse return error.WindowInit;
     }
+
 
     pub fn destroy_window(window: *Window) void {
         c.glfwDestroyWindow(window);
@@ -66,7 +77,7 @@ pub const Platform = struct {
 
     pub fn create_window_surface(instance: c.VkInstance, window: *Window, callback: ?*c.VkAllocationCallbacks) !c.VkSurfaceKHR {
         var surface: c.VkSurfaceKHR = undefined;
-        if (c.glfwCreateWindowSurface(instance, window, callback, &surface) != c.VK_SUCCESS) return error.lksjdafklj;
+        if (c.glfwCreateWindowSurface(instance, window, callback, &surface) != c.VK_SUCCESS) return error.SurfaceEerror;
 
         return surface;
     }
@@ -85,6 +96,17 @@ pub const Platform = struct {
             .width = @as(u32, @intCast(width)),
             .height = @as(u32, @intCast(height)),
         };
+    }
+
+    pub fn get_nanos_per_frame(window: *Window) !u32 {
+        if (c.glfwGetWindowMonitor(window)) |monitor| {
+            const video_mode = c.glfwGetVideoMode(monitor);
+            const rate: u32 = @intCast(video_mode.*.refreshRate);
+
+            return 1000000000 / rate;
+        }
+
+        return error.NotFound;
     }
 
     pub fn get_required_instance_extensions(allocator: std.mem.Allocator) ![][*:0]const u8 {

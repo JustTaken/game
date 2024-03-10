@@ -36,9 +36,9 @@ pub const TrueTypeFont = struct {
             on_curve: bool,
         };
 
-        fn offset(tables: []const Table, reader: Reader, header: Header, index: usize) u32 {
+        fn offset(tables: []const Table, reader: *Reader, header: Header, index: usize) u32 {
             var off: u32 = 0;
-    
+
             if (header.index_to_loc_format == 1 ) {
                 reader.seek(tables[@intFromEnum(Table.Type.Location)].offset + index * 4);
                 off = convert(&reader.read(4));
@@ -50,7 +50,7 @@ pub const TrueTypeFont = struct {
             return tables[@intFromEnum(Table.Type.Glyph)].offset + off;
         }
 
-        fn coords(reader: Reader, byte_flag: u8, delta_flag: u8, flag: u8) i16 {
+        fn coords(reader: *Reader, byte_flag: u8, delta_flag: u8, flag: u8) i16 {
             var value: i16 = 0;
 
             if ((flag & byte_flag) != 0) {
@@ -68,7 +68,7 @@ pub const TrueTypeFont = struct {
             return value;
         }
 
-        fn simple(glyph_points: [5]i16, reader: Reader, allocator: std.mem.Allocator) !Glyph {
+        fn simple(glyph_points: [5]i16, reader: *Reader, allocator: std.mem.Allocator) !Glyph {
             const number_of_contours = glyph_points[0];
 
             const on_curve:  u8 = 0b00000001;
@@ -176,7 +176,7 @@ pub const TrueTypeFont = struct {
             };
         }
 
-        fn new(tables: []const Table, reader: Reader, header: Header, allocator: std.mem.Allocator, index: usize) !Glyph {
+        fn new(tables: []const Table, reader: *Reader, header: Header, allocator: std.mem.Allocator, index: usize) !Glyph {
             const off = offset(tables, reader, header, index);
             reader.seek(off);
 
@@ -203,7 +203,7 @@ pub const TrueTypeFont = struct {
             }
         }
 
-        fn deinit(self: Glyph) void {
+        fn deinit(self: *Glyph) void {
             self.points.deinit();
             self.contour_ends.deinit();
         }
@@ -228,7 +228,7 @@ pub const TrueTypeFont = struct {
         index_to_loc_format:  i16,
         checksum_adjustment:  u32,
 
-        fn new(reader: Reader) !Header {
+        fn new(reader: *Reader) !Header {
             const version             = convert(&reader.read(4));
             const font_revision       = convert(&reader.read(4));
             const checksum_adjustment = convert(&reader.read(4));
@@ -299,7 +299,7 @@ pub const TrueTypeFont = struct {
             }
         };
 
-        fn new(reader: Reader) !Table {
+        fn new(reader: *Reader) !Table {
             return .{
                 .checksum = convert(&reader.read(4)),
                 .offset   = convert(&reader.read(4)),
@@ -309,7 +309,7 @@ pub const TrueTypeFont = struct {
     };
 
     pub fn new(file_path: []const u8, allocator: std.mem.Allocator) !TrueTypeFont {
-        const reader = Reader.new(file_path) catch |e| {
+        var reader = Reader.new(file_path) catch |e| {
             logger.log(.Error, "Failed to get the reader of file: {s}", .{file_path});
 
             return e;
@@ -339,7 +339,7 @@ pub const TrueTypeFont = struct {
             const typ = Table.Type.from_name(&name);
             const index = @intFromEnum(typ);
 
-            if (typ != Table.Type.None) tables[index] = Table.new(reader) catch |e| {
+            if (typ != Table.Type.None) tables[index] = Table.new(&reader) catch |e| {
                 logger.log(.Error, "Failed to instanciate the table: {}", .{index});
 
                 return e;
@@ -348,7 +348,7 @@ pub const TrueTypeFont = struct {
             switch (typ) {
                 .Header => {
                     reader.seek(tables[index].offset);
-                    header = try Header.new(reader);
+                    header = try Header.new(&reader);
                 },
                 .Max => {
                     reader.seek(tables[index].offset + 4);
@@ -367,7 +367,9 @@ pub const TrueTypeFont = struct {
 
         const count = 128 - 32;
         for (0..count) |k| {
-            glyphs.push(Glyph.new(tables, reader, header, allocator, 32 + k) catch {continue;}) catch |e| {
+            if (reader.failed) return error.ReaderFailed;
+
+            glyphs.push(Glyph.new(tables, &reader, header, allocator, 32 + k) catch {continue;}) catch |e| {
                 logger.log(.Error, "Failed to add glyph: {}", .{k});
 
                 return e;
@@ -404,13 +406,12 @@ pub const TrueTypeFont = struct {
         };
     }
 
-    pub fn deinit(self: TrueTypeFont) void {
-        for (self.glyphs.items) |glyph| {
-            glyph.deinit();
+    pub fn deinit(self: *TrueTypeFont) void {
+        for (0..self.glyphs.items.len) |i| {
+            self.glyphs.items[i].deinit();
         }
 
         self.glyphs.deinit();
         self.allocator.free(self.tables);
     }
 };
-
