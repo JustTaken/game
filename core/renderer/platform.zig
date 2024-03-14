@@ -3,9 +3,14 @@ const std = @import("std");
 const _config = @import("../util/configuration.zig");
 
 pub const c = @cImport({
+    // @cDefine("VK_USE_PLATFORM_WAYLAND_KHR", "");
+    @cDefine("VK_NO_PROTOTYPES", "");
     @cInclude("vulkan/vulkan.h");
     @cInclude("GLFW/glfw3.h");
+    // @cInclude("wayland-client.h");
+    @cInclude("dlfcn.h");
 });
+
 const configuration = _config.Configuration;
 const logger = configuration.logger;
 
@@ -33,12 +38,15 @@ pub const Platform = struct {
         }
 
         c.glfwWindowHint(c.GLFW_CLIENT_API, c.GLFW_NO_API);
+    }
 
-        if (c.glfwVulkanSupported() != c.GLFW_TRUE) {
-            logger.log(.Error, "Vulkan lib not found", .{});
+    pub fn get_instance_function() !vkCreateInstance {
+        const vulkan: *anyopaque = c.dlopen("libvulkan.so.1", c.RTLD_LAZY) orelse return error.LibVulkanNotFound;
+        return @as(c.PFN_vkCreateInstance, @ptrCast(c.dlsym(vulkan, "vkCreateInstance"))) orelse return error.vkCreateInstanceNotFound;
+    }
 
-            return error.VulkanInit;
-        }
+    pub fn get_instance_procaddr(instance: c.VkInstance) !vkGetInstanceProcAddr {
+        return @as(c.PFN_vkGetInstanceProcAddr, @ptrCast(c.glfwGetInstanceProcAddress(instance, "vkGetInstanceProcAddr"))) orelse return error.FunctionNotFound;
     }
 
     pub fn set_cursor_position(window: ?*Window, x: f64, y: f64) void {
@@ -48,10 +56,6 @@ pub const Platform = struct {
     pub fn cursor_position_callback(window: *Window, func: ?*const fn (?*Window, f64, f64) callconv (.C) void) void {
         c.glfwSetInputMode(window, c.GLFW_CURSOR, c.GLFW_CURSOR_DISABLED);
         _ = c.glfwSetCursorPosCallback(window, func);
-    }
-
-    pub fn key_callback(window: *Window, func: ?*const fn (?*Window, u32) callconv (.C) void) void {
-        _ = c.glfwSetCharCallback(window, func);
     }
 
     pub fn create_window(extent: ?c.VkExtent2D, name: [*c]const u8) !*Window {
@@ -69,7 +73,6 @@ pub const Platform = struct {
 
         return c.glfwCreateWindow(@intCast(e.width), @intCast(e.height), name, c.glfwGetPrimaryMonitor(), null) orelse return error.WindowInit;
     }
-
 
     pub fn destroy_window(window: *Window) void {
         c.glfwDestroyWindow(window);
@@ -141,3 +144,6 @@ pub const Platform = struct {
         c.glfwTerminate();
     }
 };
+
+const vkCreateInstance = *const fn (?*const c.VkInstanceCreateInfo, ?*const c.VkAllocationCallbacks, ?*c.VkInstance) callconv(.C) i32;
+const vkGetInstanceProcAddr = *const fn (c.VkInstance, ?[*:0]const u8) callconv(.C) c.PFN_vkVoidFunction;

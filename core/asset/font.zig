@@ -36,25 +36,11 @@ pub const TrueTypeFont = struct {
             on_curve: bool,
         };
 
-        fn offset(tables: []const Table, reader: *Reader, header: Header, index: usize) u32 {
-            var off: u32 = 0;
-
-            if (header.index_to_loc_format == 1 ) {
-                reader.seek(tables[@intFromEnum(Table.Type.Location)].offset + index * 4);
-                off = convert(&reader.read(4));
-            } else {
-                reader.seek(tables[@intFromEnum(Table.Type.Location)].offset + index * 2);
-                off = convert(&reader.read(2)) * 2;
-            }
-
-            return tables[@intFromEnum(Table.Type.Glyph)].offset + off;
-        }
-
-        fn coords(reader: *Reader, byte_flag: u8, delta_flag: u8, flag: u8) i16 {
+        fn coords(reader: Reader, byte_flag: u8, delta_flag: u8, flag: u8) !i16 {
             var value: i16 = 0;
 
             if ((flag & byte_flag) != 0) {
-                const v = reader.read(1)[0];
+                const v = (try reader.read(1))[0];
 
                 if ((flag & delta_flag) != 0) {
                     value += v;
@@ -62,13 +48,13 @@ pub const TrueTypeFont = struct {
                     value -= v;
                 }
             } else if ((~flag & delta_flag) != 0) {
-                value += @bitCast(@as(u16, @intCast(convert(&reader.read(2)))));
+                value += @bitCast(@as(u16, @intCast(convert(&try reader.read(2)))));
             }
 
             return value;
         }
 
-        fn simple(glyph_points: [5]i16, reader: *Reader, allocator: std.mem.Allocator) !Glyph {
+        fn simple(glyph_points: [5]i16, reader: Reader, allocator: std.mem.Allocator) !Glyph {
             const number_of_contours = glyph_points[0];
 
             const on_curve:  u8 = 0b00000001;
@@ -86,7 +72,7 @@ pub const TrueTypeFont = struct {
 
             var max: u32 = 0;
             for (0..contour_ends.items.len) |_| {
-                const new_contour = convert(&reader.read(2));
+                const new_contour = convert(&try reader.read(2));
                 if (new_contour > max) {
                     max = new_contour;
                 }
@@ -114,14 +100,14 @@ pub const TrueTypeFont = struct {
 
             if (number_of_contours <= 0) return error.NoCountour;
 
-            const off = convert(&reader.read(2));
+            const off = convert(&try reader.read(2));
 
             const pos = reader.pos();
             reader.seek(off + pos);
 
             var i: u32 = 0;
             while (i < max + 1) {
-                const flag = reader.read(1)[0];
+                const flag = (try reader.read(1))[0];
 
                 flags.push(flag) catch |e| {
                     logger.log(.Error, "Array list refuses to receive one more item", .{});
@@ -137,7 +123,7 @@ pub const TrueTypeFont = struct {
                 };
 
                 if ((flag & repeat) != 0) {
-                    var repeat_count = reader.read(1)[0];
+                    var repeat_count = (try reader.read(1))[0];
                     i += repeat_count;
 
                     while (repeat_count > 0) {
@@ -162,8 +148,8 @@ pub const TrueTypeFont = struct {
             }
 
             for (0..max + 1) |k| {
-                points.items[k].x = coords(reader, x_is_byte, x_delta, flags.items[k]);
-                points.items[k].y = coords(reader, y_is_byte, y_delta, flags.items[k]);
+                points.items[k].x = try coords(reader, x_is_byte, x_delta, flags.items[k]);
+                points.items[k].y = try coords(reader, y_is_byte, y_delta, flags.items[k]);
             }
 
             return .{
@@ -176,15 +162,28 @@ pub const TrueTypeFont = struct {
             };
         }
 
-        fn new(tables: []const Table, reader: *Reader, header: Header, allocator: std.mem.Allocator, index: usize) !Glyph {
-            const off = offset(tables, reader, header, index);
-            reader.seek(off);
+        fn new(tables: []const Table, reader: Reader, header: Header, allocator: std.mem.Allocator, index: usize) !Glyph {
+            const offset: u32 = blk: {
+                var off: u32 = 0;
 
-            const number_of_contours = convert(&reader.read(2));
-            const x_min              = convert(&reader.read(2));
-            const y_min              = convert(&reader.read(2));
-            const x_max              = convert(&reader.read(2));
-            const y_max              = convert(&reader.read(2));
+                if (header.index_to_loc_format == 1 ) {
+                    reader.seek(tables[@intFromEnum(Table.Type.Location)].offset + index * 4);
+                    off = convert(&try reader.read(4));
+                } else {
+                    reader.seek(tables[@intFromEnum(Table.Type.Location)].offset + index * 2);
+                    off = convert(&try reader.read(2)) * 2;
+                }
+
+                break :blk tables[@intFromEnum(Table.Type.Glyph)].offset + off;
+            };
+
+            reader.seek(offset);
+
+            const number_of_contours = convert(&try reader.read(2));
+            const x_min              = convert(&try reader.read(2));
+            const y_min              = convert(&try reader.read(2));
+            const x_max              = convert(&try reader.read(2));
+            const y_max              = convert(&try reader.read(2));
 
             const points: [5]i16 = .{
                 @bitCast(@as(u16, @intCast(number_of_contours))),
@@ -228,24 +227,24 @@ pub const TrueTypeFont = struct {
         index_to_loc_format:  i16,
         checksum_adjustment:  u32,
 
-        fn new(reader: *Reader) !Header {
-            const version             = convert(&reader.read(4));
-            const font_revision       = convert(&reader.read(4));
-            const checksum_adjustment = convert(&reader.read(4));
-            const magic_number        = convert(&reader.read(4));
-            const flags               = convert(&reader.read(2));
-            const units_pem           = convert(&reader.read(2));
-            const created             = convert(&reader.read(8));
-            const modified            = convert(&reader.read(8));
-            const xMin                = convert(&reader.read(2));
-            const xMax                = convert(&reader.read(2));
-            const yMin                = convert(&reader.read(2));
-            const yMax                = convert(&reader.read(2));
-            const mac_style           = convert(&reader.read(2));
-            const lowest_rec_ppem     = convert(&reader.read(2));
-            const font_direction_hint = convert(&reader.read(2));
-            const index_to_loc_format = convert(&reader.read(2));
-            const glyph_data_format   = convert(&reader.read(2));
+        fn new(reader: Reader) !Header {
+            const version             = convert(&try reader.read(4));
+            const font_revision       = convert(&try reader.read(4));
+            const checksum_adjustment = convert(&try reader.read(4));
+            const magic_number        = convert(&try reader.read(4));
+            const flags               = convert(&try reader.read(2));
+            const units_pem           = convert(&try reader.read(2));
+            const created             = convert(&try reader.read(8));
+            const modified            = convert(&try reader.read(8));
+            const xMin                = convert(&try reader.read(2));
+            const xMax                = convert(&try reader.read(2));
+            const yMin                = convert(&try reader.read(2));
+            const yMax                = convert(&try reader.read(2));
+            const mac_style           = convert(&try reader.read(2));
+            const lowest_rec_ppem     = convert(&try reader.read(2));
+            const font_direction_hint = convert(&try reader.read(2));
+            const index_to_loc_format = convert(&try reader.read(2));
+            const glyph_data_format   = convert(&try reader.read(2));
 
             if (magic_number != 0x5f0f3cf5) return error.WrongMagicNumber;
 
@@ -299,27 +298,27 @@ pub const TrueTypeFont = struct {
             }
         };
 
-        fn new(reader: *Reader) !Table {
+        fn new(reader: Reader) !Table {
             return .{
-                .checksum = convert(&reader.read(4)),
-                .offset   = convert(&reader.read(4)),
-                .length   = convert(&reader.read(4)),
+                .checksum = convert(&try reader.read(4)),
+                .offset   = convert(&try reader.read(4)),
+                .length   = convert(&try reader.read(4)),
             };
         }
     };
 
     pub fn new(file_path: []const u8, allocator: std.mem.Allocator) !TrueTypeFont {
-        var reader = Reader.new(file_path) catch |e| {
+        const reader = Reader.new(file_path) catch |e| {
             logger.log(.Error, "Failed to get the reader of file: {s}", .{file_path});
 
             return e;
         };
 
-        const scalar_type     = convert(&reader.read(4));
-        const num_tables      = convert(&reader.read(2));
-        const search_range    = convert(&reader.read(2));
-        const entry_selector  = convert(&reader.read(2));
-        const range_shift     = convert(&reader.read(2));
+        const scalar_type     = convert(&try reader.read(4));
+        const num_tables      = convert(&try reader.read(2));
+        const search_range    = convert(&try reader.read(2));
+        const entry_selector  = convert(&try reader.read(2));
+        const range_shift     = convert(&try reader.read(2));
         var header: Header    = undefined;
         var glyphs_count: u32 = undefined;
 
@@ -334,12 +333,11 @@ pub const TrueTypeFont = struct {
         for (0..num_tables) |k| {
             reader.seek(pos + k * 16);
 
-            const name = reader.read(4);
-
+            const name = try reader.read(4);
             const typ = Table.Type.from_name(&name);
             const index = @intFromEnum(typ);
 
-            if (typ != Table.Type.None) tables[index] = Table.new(&reader) catch |e| {
+            if (typ != Table.Type.None) tables[index] = Table.new(reader) catch |e| {
                 logger.log(.Error, "Failed to instanciate the table: {}", .{index});
 
                 return e;
@@ -348,12 +346,12 @@ pub const TrueTypeFont = struct {
             switch (typ) {
                 .Header => {
                     reader.seek(tables[index].offset);
-                    header = try Header.new(&reader);
+                    header = try Header.new(reader);
                 },
                 .Max => {
                     reader.seek(tables[index].offset + 4);
 
-                    glyphs_count = convert(&reader.read(2));
+                    glyphs_count = convert(&try reader.read(2));
                 },
                 else => {},
             }
@@ -367,9 +365,7 @@ pub const TrueTypeFont = struct {
 
         const count = 128 - 32;
         for (0..count) |k| {
-            if (reader.failed) return error.ReaderFailed;
-
-            glyphs.push(Glyph.new(tables, &reader, header, allocator, 32 + k) catch {continue;}) catch |e| {
+            glyphs.push(Glyph.new(tables, reader, header, allocator, 32 + k) catch {continue;}) catch |e| {
                 logger.log(.Error, "Failed to add glyph: {}", .{k});
 
                 return e;

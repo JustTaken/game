@@ -36,7 +36,6 @@ pub fn Application(comptime renderer: Renderer) type {
                 unreachable;
             };
 
-
             const backend: Backend(renderer) = Backend(renderer).new() catch {
                 logger.log(.Fatal, "Failed to initialize backend", .{});
 

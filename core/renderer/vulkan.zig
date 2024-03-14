@@ -24,7 +24,13 @@ const Emiter = _event.EventSystem.Event.Emiter;
 
 const logger = configuration.logger;
 
-const REQUIRED_DEVICE_EXTENSIONS = [_][*:0]const u8 { c.VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+const PLATFORM_EXTENSIONS = &[_] [*:0]const u8 {
+    "VK_KHR_surface",
+    "VK_KHR_xcb_surface"
+};
+const REQUIRED_DEVICE_EXTENSIONS = [_][*:0]const u8 {
+      c.VK_KHR_SWAPCHAIN_EXTENSION_NAME
+};
 
 pub const Vulkan = struct {
     instance: Instance,
@@ -38,38 +44,23 @@ pub const Vulkan = struct {
 
     const Instance = struct {
         handle: c.VkInstance,
-        dispatch: Dispatch,
-
-        const Dispatch = struct {
-            create_device: *const fn (c.VkPhysicalDevice, *const c.VkDeviceCreateInfo, ?*const c.VkAllocationCallbacks, ?*c.VkDevice) callconv(.C) i32,
-            enumerate_physical_devices: *const fn (c.VkInstance, *u32, ?[*]c.VkPhysicalDevice) callconv(.C) i32,
-            enumerate_device_extension_properties: *const fn (c.VkPhysicalDevice, ?[*]const u8, *u32, ?[*]c.VkExtensionProperties) callconv(.C) i32,
-            get_physical_device_properties: *const fn (c.VkPhysicalDevice, ?*c.VkPhysicalDeviceProperties) callconv(.C) void,
-            get_physical_device_features: *const fn (c.VkPhysicalDevice, ?*c.VkPhysicalDeviceFeatures) callconv(.C) void,
-            get_physical_device_surface_formats: *const fn (c.VkPhysicalDevice, c.VkSurfaceKHR, *u32, ?[*]c.VkSurfaceFormatKHR) callconv(.C) i32,
-            get_physical_device_surface_present_modes: *const fn (c.VkPhysicalDevice, c.VkSurfaceKHR, *u32, ?[*]c.VkPresentModeKHR) callconv(.C) i32,
-            get_physical_device_queue_family_properties: *const fn (c.VkPhysicalDevice, *u32, ?[*]c.VkQueueFamilyProperties) callconv(.C) void,
-            get_physical_device_surface_capabilities: *const fn (c.VkPhysicalDevice, c.VkSurfaceKHR, *c.VkSurfaceCapabilitiesKHR) callconv(.C) i32,
-            get_physical_device_surface_support: *const fn (c.VkPhysicalDevice, u32, c.VkSurfaceKHR, *u32) callconv(.C) i32,
-            get_physical_device_memory_properties: *const fn (c.VkPhysicalDevice, *c.VkPhysicalDeviceMemoryProperties) callconv(.C) void,
-            get_physical_device_format_properties: *const fn (c.VkPhysicalDevice, c.VkFormat, *c.VkFormatProperties) callconv(.C) void,
-            destroy_surface: *const fn (c.VkInstance, c.VkSurfaceKHR, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-            destroy: *const fn (c.VkInstance, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-        };
 
         fn new(allocator: std.mem.Allocator) !Instance {
             var instance: c.VkInstance = undefined;
-            const PFN_vkCreateInstance = @as(c.PFN_vkCreateInstance, @ptrCast(c.glfwGetInstanceProcAddress(null, "vkCreateInstance"))) orelse return error.FunctionNotFound;
-            const extensions = Platform.get_required_instance_extensions(allocator) catch |e| {
-                logger.log(.Error, "No window extension list was provided by the platform", .{});
+            const vkCreateInstance = Platform.get_instance_function() catch |e| {
+                logger.log(.Error, "Lib vulkan not found", .{});
 
                 return e;
             };
 
+            const extensions = PLATFORM_EXTENSIONS;
+
             defer allocator.free(extensions);
 
-            try check(PFN_vkCreateInstance(&.{
+            try check(vkCreateInstance(&.{
                 .sType = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+                .enabledExtensionCount = @as(u32, @intCast(extensions.len)),
+                .ppEnabledExtensionNames = extensions.ptr,
                 .pApplicationInfo = &.{
                     .sType = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
                     .pApplicationName = @as([*:0]const u8, @ptrCast(configuration.application_name)),
@@ -78,141 +69,120 @@ pub const Vulkan = struct {
                     .engineVersion = configuration.version,
                     .apiVersion = c.VK_MAKE_API_VERSION(0, 1, 3, 0),
                 },
-                .enabledExtensionCount = @as(u32, @intCast(extensions.len)),
-                .ppEnabledExtensionNames = extensions.ptr,
-                },
-                                           null,
-                                           &instance));
+            }, null, &instance));
 
-            const PFN_vkGetInstanceProcAddr = @as(c.PFN_vkGetInstanceProcAddr, @ptrCast(c.glfwGetInstanceProcAddress(instance, "vkGetInstanceProcAddr"))) orelse return error.FunctionNotFound;
-
+            try populate_instance_functions(instance);
             return .{
                 .handle = instance,
-                .dispatch = .{
-                    .destroy_surface = @as(c.PFN_vkDestroySurfaceKHR, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkDestroySurfaceKHR"))) orelse return error.FunctionNotFound,
-                    .enumerate_physical_devices = @as(c.PFN_vkEnumeratePhysicalDevices, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkEnumeratePhysicalDevices"))) orelse return error.FunctionNotFound,
-                    .enumerate_device_extension_properties = @as(c.PFN_vkEnumerateDeviceExtensionProperties, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkEnumerateDeviceExtensionProperties"))) orelse return error.FunctionNotFound,
-                    .get_physical_device_properties = @as(c.PFN_vkGetPhysicalDeviceProperties, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties"))) orelse return error.FunctionNotFound,
-                    .get_physical_device_features = @as(c.PFN_vkGetPhysicalDeviceFeatures, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures"))) orelse return error.FunctionNotFound,
-                    .get_physical_device_surface_formats = @as(c.PFN_vkGetPhysicalDeviceSurfaceFormatsKHR, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceFormatsKHR"))) orelse return error.FunctionNotFound,
-                    .get_physical_device_surface_present_modes = @as(c.PFN_vkGetPhysicalDeviceSurfacePresentModesKHR, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfacePresentModesKHR"))) orelse return error.FunctionNotFound,
-                    .get_physical_device_queue_family_properties = @as(c.PFN_vkGetPhysicalDeviceQueueFamilyProperties, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceQueueFamilyProperties"))) orelse return error.FunctionNotFound,
-                    .get_physical_device_surface_capabilities = @as(c.PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR"))) orelse return error.FunctionNotFound,
-                    .get_physical_device_surface_support = @as(c.PFN_vkGetPhysicalDeviceSurfaceSupportKHR, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceSupportKHR"))) orelse return error.FunctionNotFound,
-                    .get_physical_device_memory_properties = @as(c.PFN_vkGetPhysicalDeviceMemoryProperties, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceMemoryProperties"))) orelse return error.FunctionNotFound,
-                    .get_physical_device_format_properties = @as(c.PFN_vkGetPhysicalDeviceFormatProperties, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFormatProperties"))) orelse return error.FunctionNotFound,
-                    .create_device = @as(c.PFN_vkCreateDevice, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkCreateDevice"))) orelse return error.FunctionNotFound,
-                    .destroy = @as(c.PFN_vkDestroyInstance, @ptrCast(PFN_vkGetInstanceProcAddr(instance, "vkDestroyInstance"))) orelse return error.FunctionNotFound,
-                },
             };
         }
 
-        fn create_device(self: Instance, physical_device: c.VkPhysicalDevice, info: c.VkDeviceCreateInfo) !c.VkDevice {
+        fn create_device(_: Instance, physical_device: c.VkPhysicalDevice, info: c.VkDeviceCreateInfo) !c.VkDevice {
             var device: c.VkDevice = undefined;
-            try check(self.dispatch.create_device(physical_device, &info, null, &device));
+            try check(vkCreateDevice(physical_device, &info, null, &device));
 
             return device;
         }
 
         fn destroy_surface(self: Instance, surface: c.VkSurfaceKHR) void {
-            self.dispatch.destroy_surface(self.handle, surface, null);
+            vkDestroySurfaceKHR(self.handle, surface, null);
         }
 
         fn enumerate_physical_devices(self: Instance, allocator: std.mem.Allocator) ![]c.VkPhysicalDevice {
             var count: u32 = undefined;
 
-            try check(self.dispatch.enumerate_physical_devices(self.handle, &count, null));
+            try check(vkEnumeratePhysicalDevices(self.handle, &count, null));
             const physical_devices = try allocator.alloc(c.VkPhysicalDevice, count);
 
-            try check(self.dispatch.enumerate_physical_devices(self.handle, &count, physical_devices.ptr));
+            try check(vkEnumeratePhysicalDevices(self.handle, &count, physical_devices.ptr));
 
             return physical_devices;
         }
 
-        fn enumerate_device_extension_properties(self: Instance, physical_device: c.VkPhysicalDevice, allocator: std.mem.Allocator) ![]c.VkExtensionProperties {
+        fn enumerate_device_extension_properties(_: Instance, physical_device: c.VkPhysicalDevice, allocator: std.mem.Allocator) ![]c.VkExtensionProperties {
             var count: u32 = undefined;
 
-            try check(self.dispatch.enumerate_device_extension_properties(physical_device, null, &count, null));
+            try check(vkEnumerateDeviceExtensionProperties(physical_device, null, &count, null));
             const extension_properties = try allocator.alloc(c.VkExtensionProperties, count);
 
-            try check(self.dispatch.enumerate_device_extension_properties(physical_device, null, &count, extension_properties.ptr));
+            try check(vkEnumerateDeviceExtensionProperties(physical_device, null, &count, extension_properties.ptr));
 
             return extension_properties;
         }
 
-        fn get_physical_device_properties(self: Instance, physical_device: c.VkPhysicalDevice) c.VkPhysicalDeviceProperties {
+        fn get_physical_device_properties(_: Instance, physical_device: c.VkPhysicalDevice) c.VkPhysicalDeviceProperties {
             var properties: c.VkPhysicalDeviceProperties = undefined;
-            self.dispatch.get_physical_device_properties(physical_device, &properties);
+            vkGetPhysicalDeviceProperties(physical_device, &properties);
 
             return properties;
         }
 
-        fn get_physical_device_features(self: Instance, physical_device: c.VkPhysicalDevice) c.VkPhysicalDeviceFeatures {
+        fn get_physical_device_features(_: Instance, physical_device: c.VkPhysicalDevice) c.VkPhysicalDeviceFeatures {
             var features: c.VkPhysicalDeviceFeatures = undefined;
-            self.dispatch.get_physical_device_features(physical_device, &features);
+            vkGetPhysicalDeviceFeatures(physical_device, &features);
 
             return features;
         }
 
-        fn get_physical_device_format_properties(self: Instance, physical_device: c.VkPhysicalDevice, format: c.VkFormat) c.VkFormatProperties {
+        fn get_physical_device_format_properties(_: Instance, physical_device: c.VkPhysicalDevice, format: c.VkFormat) c.VkFormatProperties {
             var properties: c.VkFormatProperties = undefined;
-            self.dispatch.get_physical_device_format_properties(physical_device, format, &properties);
+            vkGetPhysicalDeviceFormatProperties(physical_device, format, &properties);
 
             return properties;
         }
 
-        fn get_physical_device_surface_formats(self: Instance, physical_device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR, allocator: std.mem.Allocator) ![]c.VkSurfaceFormatKHR {
+        fn get_physical_device_surface_formats(_: Instance, physical_device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR, allocator: std.mem.Allocator) ![]c.VkSurfaceFormatKHR {
             var count: u32 = undefined;
-            try check(self.dispatch.get_physical_device_surface_formats(physical_device, surface, &count, null));
+            try check(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &count, null));
             const formats = try allocator.alloc(c.VkSurfaceFormatKHR, count);
 
-            try check(self.dispatch.get_physical_device_surface_formats(physical_device, surface, &count, formats.ptr));
+            try check(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &count, formats.ptr));
 
             return formats;
         }
 
-        fn get_physical_device_surface_present_modes(self: Instance, physical_device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR, allocator: std.mem.Allocator) ![]c.VkPresentModeKHR {
+        fn get_physical_device_surface_present_modes(_: Instance, physical_device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR, allocator: std.mem.Allocator) ![]c.VkPresentModeKHR {
             var count: u32 = undefined;
-            try check(self.dispatch.get_physical_device_surface_present_modes(physical_device, surface, &count, null));
+            try check(vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &count, null));
             const present_modes = try allocator.alloc(c.VkPresentModeKHR, count);
-            try check(self.dispatch.get_physical_device_surface_present_modes(physical_device, surface, &count, present_modes.ptr));
+            try check(vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &count, present_modes.ptr));
 
             return present_modes;
         }
 
-        fn get_physical_device_queue_family_properties(self: Instance, physical_device: c.VkPhysicalDevice, allocator: std.mem.Allocator) ![]c.VkQueueFamilyProperties {
+        fn get_physical_device_queue_family_properties(_: Instance, physical_device: c.VkPhysicalDevice, allocator: std.mem.Allocator) ![]c.VkQueueFamilyProperties {
             var count: u32 = undefined;
-            self.dispatch.get_physical_device_queue_family_properties(physical_device, &count, null);
+            vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &count, null);
             const properties = try allocator.alloc(c.VkQueueFamilyProperties, count);
 
-            self.dispatch.get_physical_device_queue_family_properties(physical_device, &count, properties.ptr);
+            vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &count, properties.ptr);
 
             return properties;
         }
 
-        fn get_physical_device_surface_capabilities(self: Instance, physical_device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR) !c.VkSurfaceCapabilitiesKHR {
+        fn get_physical_device_surface_capabilities(_: Instance, physical_device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR) !c.VkSurfaceCapabilitiesKHR {
             var capabilities: c.VkSurfaceCapabilitiesKHR = undefined;
-            try check(self.dispatch.get_physical_device_surface_capabilities(physical_device, surface, &capabilities));
+            try check(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &capabilities));
 
             return capabilities;
         }
 
-        fn get_physical_device_surface_support(self: Instance, physical_device: c.VkPhysicalDevice, family: u32, surface: c.VkSurfaceKHR) !bool {
+        fn get_physical_device_surface_support(_: Instance, physical_device: c.VkPhysicalDevice, family: u32, surface: c.VkSurfaceKHR) !bool {
             var flag: u32 = undefined;
-            try check(self.dispatch.get_physical_device_surface_support(physical_device, family, surface, &flag));
+            try check(vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, family, surface, &flag));
 
             return flag == c.VK_TRUE;
         }
 
-        fn get_physical_device_memory_properties(self: Instance, physical_device: c.VkPhysicalDevice) c.VkPhysicalDeviceMemoryProperties {
+        fn get_physical_device_memory_properties(_: Instance, physical_device: c.VkPhysicalDevice) c.VkPhysicalDeviceMemoryProperties {
             var properties: c.VkPhysicalDeviceMemoryProperties = undefined;
-            self.dispatch.get_physical_device_memory_properties(physical_device, &properties);
+            vkGetPhysicalDeviceMemoryProperties(physical_device, &properties);
 
             return properties;
         }
 
         fn destroy(self: Instance) void {
-            self.dispatch.destroy(self.handle, null);
+            vkDestroyInstance(self.handle, null);
         }
     };
 
@@ -220,8 +190,6 @@ pub const Vulkan = struct {
         handle: c.VkDevice,
         physical_device: c.VkPhysicalDevice,
         queues: [4]Queue,
-
-        dispatch: Dispatch,
 
         const Queue = struct {
             handle: c.VkQueue,
@@ -246,73 +214,6 @@ pub const Vulkan = struct {
 
                 return uniques_array;
             }
-        };
-
-        const Dispatch = struct {
-            allocate_command_buffers: *const fn (c.VkDevice, *const c.VkCommandBufferAllocateInfo, *c.VkCommandBuffer) callconv(.C) i32,
-            allocate_memory: *const fn (c.VkDevice, *const c.VkMemoryAllocateInfo, ?*const c.VkAllocationCallbacks, *c.VkDeviceMemory) callconv(.C) i32,
-            allocate_descriptor_sets: *const fn (c.VkDevice, *const c.VkDescriptorSetAllocateInfo, *c.VkDescriptorSet) callconv(.C) i32,
-            queue_submit: *const fn (c.VkQueue, u32, *const c.VkSubmitInfo, c.VkFence) callconv(.C) i32,
-            queue_present: *const fn (c.VkQueue, *const c.VkPresentInfoKHR) callconv(.C) i32,
-            queue_wait_idle: *const fn (c.VkQueue) callconv(.C) i32,
-            get_image_memory_requirements: *const fn (c.VkDevice, c.VkImage, *c.VkMemoryRequirements) callconv(.C) void,
-            get_device_queue: *const fn (c.VkDevice, u32, u32, *c.VkQueue) callconv(.C) void,
-            get_swapchain_images: *const fn (c.VkDevice, c.VkSwapchainKHR, *u32, ?[*]c.VkImage) callconv(.C) i32,
-            get_buffer_memory_requirements: *const fn (c.VkDevice, c.VkBuffer, *c.VkMemoryRequirements) callconv(.C) void,
-            bind_buffer_memory: *const fn (c.VkDevice, c.VkBuffer, c.VkDeviceMemory, u64) callconv(.C) i32,
-            bind_image_memory: *const fn (c.VkDevice, c.VkImage, c.VkDeviceMemory, u64) callconv(.C) i32,
-            acquire_next_image: *const fn (c.VkDevice, c.VkSwapchainKHR, u64, c.VkSemaphore, c.VkFence, *u32) callconv(.C) i32,
-            wait_for_fences : *const fn (c.VkDevice, u32, *const c.VkFence, u32, u64) callconv(.C) i32,
-            reset_fences: *const fn (c.VkDevice, u32, *const c.VkFence) callconv(.C) i32,
-            create_swapchain: *const fn (c.VkDevice, *const c.VkSwapchainCreateInfoKHR, ?*const c.VkAllocationCallbacks, *c.VkSwapchainKHR) callconv(.C) i32,
-            create_image: *const fn (c.VkDevice, *const c.VkImageCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkImage) callconv(.C) i32,
-            create_shader_module: *const fn (c.VkDevice, *const c.VkShaderModuleCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkShaderModule) callconv(.C) i32,
-            create_pipeline_layout: *const fn (c.VkDevice, *const c.VkPipelineLayoutCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkPipelineLayout) callconv(.C) i32,
-            create_image_view: *const fn (c.VkDevice, *const c.VkImageViewCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkImageView) callconv(.C) i32,
-            create_render_pass: *const fn (c.VkDevice, *const c.VkRenderPassCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkRenderPass) callconv(.C) i32,
-            create_graphics_pipeline: *const fn (c.VkDevice, c.VkPipelineCache, u32, *const c.VkGraphicsPipelineCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkPipeline) callconv(.C) i32,
-            create_framebuffer: *const fn (c.VkDevice, *const c.VkFramebufferCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkFramebuffer) callconv(.C) i32,
-            create_command_pool: *const fn (c.VkDevice, *const c.VkCommandPoolCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkCommandPool) callconv(.C) i32,
-            create_semaphore: *const fn (c.VkDevice, *const c.VkSemaphoreCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkSemaphore) callconv(.C) i32,
-            create_fence: *const fn (c.VkDevice, *const c.VkFenceCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkFence) callconv(.C) i32,
-            create_buffer: *const fn (c.VkDevice, *const c.VkBufferCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkBuffer) callconv(.C) i32,
-            create_descriptor_set_layout: *const fn (c.VkDevice, *const c.VkDescriptorSetLayoutCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkDescriptorSetLayout) callconv(.C) i32,
-            create_descriptor_pool: *const fn (c.VkDevice, *const c.VkDescriptorPoolCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkDescriptorPool) callconv(.C) i32,
-            destroy_command_pool: *const fn (c.VkDevice, c.VkCommandPool, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-            destroy_pipeline: *const fn (c.VkDevice, c.VkPipeline, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-            destroy_pipeline_layout: *const fn (c.VkDevice, c.VkPipelineLayout, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-            destroy_render_pass: *const fn (c.VkDevice, c.VkRenderPass, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-            destroy_image_view: *const fn (c.VkDevice, c.VkImageView, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-            destroy_swapchain: *const fn (c.VkDevice, c.VkSwapchainKHR, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-            destroy_shader_module: *const fn (c.VkDevice, c.VkShaderModule, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-            destroy_semaphore: *const fn (c.VkDevice, c.VkSemaphore, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-            destroy_fence: *const fn (c.VkDevice, c.VkFence, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-            destroy_framebuffer: *const fn (c.VkDevice, c.VkFramebuffer, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-            destroy_buffer: *const fn (c.VkDevice, c.VkBuffer, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-            destroy_descriptor_set_layout: *const fn (c.VkDevice, c.VkDescriptorSetLayout, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-            destroy_descriptor_pool: *const fn (c.VkDevice, c.VkDescriptorPool, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-            begin_command_buffer: *const fn (c.VkCommandBuffer, *const c.VkCommandBufferBeginInfo) callconv(.C) i32,
-            cmd_begin_render_pass: *const fn (c.VkCommandBuffer, *const c.VkRenderPassBeginInfo, c.VkSubpassContents) callconv(.C) void,
-            cmd_bind_pipeline: *const fn (c.VkCommandBuffer, c.VkPipelineBindPoint, c.VkPipeline) callconv(.C) void,
-            cmd_bind_vertex_buffer: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkBuffer, *const u64) callconv(.C) void,
-            cmd_bind_index_buffer: *const fn (c.VkCommandBuffer, c.VkBuffer, u64, c.VkIndexType) callconv(.C) void,
-            cmd_set_viewport: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkViewport) callconv(.C) void,
-            cmd_set_scissor: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkRect2D ) callconv(.C) void,
-            cmd_copy_buffer: *const fn (c.VkCommandBuffer, c.VkBuffer, c.VkBuffer, u32, *const c.VkBufferCopy) callconv(.C) void,
-            cmd_draw: *const fn (c.VkCommandBuffer, u32, u32, u32, u32) callconv(.C) void,
-            cmd_draw_indexed: *const fn (c.VkCommandBuffer, u32, u32, u32, i32, u32) callconv(.C) void,
-            cmd_push_constants: *const fn (c.VkCommandBuffer, c.VkPipelineLayout, c.VkShaderStageFlags, u32, u32, ?*const anyopaque) callconv(.C) void,
-            update_descriptor_sets: *const fn (c.VkDevice, u32, *const c.VkWriteDescriptorSet, u32, ?*const c.VkCopyDescriptorSet) callconv(.C) void,
-            cmd_bind_descriptor_sets: *const fn (c.VkCommandBuffer, c.VkPipelineBindPoint, c.VkPipelineLayout, u32, u32, [*]const c.VkDescriptorSet, u32, ?*const u32) callconv(.C) void,
-            end_render_pass: *const fn (c.VkCommandBuffer) callconv(.C) void,
-            end_command_buffer: *const fn (c.VkCommandBuffer) callconv(.C) i32,
-            reset_command_buffer: *const fn (c.VkCommandBuffer, c.VkCommandBufferResetFlags) callconv(.C) i32,
-            free_memory: *const fn (c.VkDevice, c.VkDeviceMemory, ?*const c.VkAllocationCallbacks) callconv(.C) void,
-            free_command_buffers: *const fn (c.VkDevice, c.VkCommandPool, u32, *const c.VkCommandBuffer) callconv (.C) void,
-            free_descriptor_sets: *const fn (c.VkDevice, c.VkDescriptorPool, u32, *const c.VkDescriptorSet) callconv (.C) i32,
-            map_memory: *const fn (c.VkDevice, c.VkDeviceMemory, u64, u64, u32, *?*anyopaque) callconv(.C) i32,
-            unmap_memory: *const fn (c.VkDevice, c.VkDeviceMemory) callconv(.C) void,
-            destroy: *const fn (c.VkDevice, ?*const c.VkAllocationCallbacks) callconv(.C) void,
         };
 
         const Type = enum {
@@ -369,13 +270,13 @@ pub const Vulkan = struct {
                         for (families_properties, 0..) |properties, i| {
                             const family: u32 = @intCast(i);
 
-                            if (families[1] == null and try instance.get_physical_device_surface_support(physical_device, family, surface)) families[1] = family;
                             if (families[0] == null and bit(properties.queueFlags, c.VK_QUEUE_GRAPHICS_BIT)) families[0] = family;
+                            if (families[1] == null and try instance.get_physical_device_surface_support(physical_device, family, surface)) families[1] = family;
                             if (families[2] == null and bit(properties.queueFlags, c.VK_QUEUE_COMPUTE_BIT)) families[2] = family;
                             if (families[3] == null and bit(properties.queueFlags, c.VK_QUEUE_TRANSFER_BIT)) families[3] = family;
                         }
 
-                        for (families) |i| {
+                          for (families) |i| {
                             if (i) |_| {
                             } else {
                                 break :rate 0;
@@ -399,7 +300,7 @@ pub const Vulkan = struct {
                         };
 
                         break :rate sum;
-                    };
+                        };
 
                     if (rating >= points) {
                         points = rating;
@@ -433,15 +334,15 @@ pub const Vulkan = struct {
 
             defer allocator.free(queue_create_infos);
 
-            for (families.items, 0..) |family, i| {
-                queue_create_infos[i] = .{
-                    .queueFamilyIndex = family,
-                    .queueCount = 1,
-                    .pQueuePriorities = &[_]f32 {1.0},
-                };
-            }
+                for (families.items, 0..) |family, i| {
+                    queue_create_infos[i] = .{
+                        .queueFamilyIndex = family,
+                        .queueCount = 1,
+                        .pQueuePriorities = &[_]f32 {1.0},
+                    };
+                }
 
-            const device = instance.create_device( physical_device, .{
+                const device = instance.create_device(physical_device, .{
                     .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
                     .queueCreateInfoCount = @as(u32 , @intCast(queue_create_infos.len)),
                     .pQueueCreateInfos = queue_create_infos.ptr,
@@ -454,171 +355,97 @@ pub const Vulkan = struct {
 
                 return e;
             };
+                try populate_device_functions(device);
 
-            const PFN_vkGetDeviceProcAddr = @as(c.PFN_vkGetDeviceProcAddr, @ptrCast(c.glfwGetInstanceProcAddress(instance.handle, "vkGetDeviceProcAddr"))) orelse return error.FunctionNotFound;
-            const PFN_vkGetDeviceQueue = @as(c.PFN_vkGetDeviceQueue, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkGetDeviceQueue"))) orelse return error.FunctionNotFound;
 
-            var queues: [4]Queue = .{
-                .{ .family = queue_families[0], .handle = undefined, },
-                .{ .family = queue_families[1], .handle = undefined, },
-                .{ .family = queue_families[2], .handle = undefined, },
-                .{ .family = queue_families[3], .handle = undefined, },
+                var queues: [4]Queue = .{
+                .{ .family = queue_families[0], .handle = undefined },
+                .{ .family = queue_families[1], .handle = undefined },
+                .{ .family = queue_families[2], .handle = undefined },
+                .{ .family = queue_families[3], .handle = undefined },
             };
 
             for (0..queues.len) |i| {
-                PFN_vkGetDeviceQueue(device, queues[i].family, 0, &queues[i].handle);
+                vkGetDeviceQueue(device, queues[i].family, 0, &queues[i].handle);
             }
 
             return .{
                 .handle = device,
-                .dispatch = .{
-                    .get_device_queue = PFN_vkGetDeviceQueue,
-                    .allocate_command_buffers = @as(c.PFN_vkAllocateCommandBuffers, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkAllocateCommandBuffers"))) orelse return error.FunctionNotFound,
-                    .allocate_memory = @as(c.PFN_vkAllocateMemory, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkAllocateMemory"))) orelse return error.FunctionNotFound,
-                    .allocate_descriptor_sets = @as(c.PFN_vkAllocateDescriptorSets, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkAllocateDescriptorSets"))) orelse return error.FunctionNotFound,
-                    .queue_submit = @as(c.PFN_vkQueueSubmit, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkQueueSubmit"))) orelse return error.FunctionNotFound,
-                    .queue_present = @as(c.PFN_vkQueuePresentKHR, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkQueuePresentKHR"))) orelse return error.FunctionNotFound,
-                    .queue_wait_idle = @as(c.PFN_vkQueueWaitIdle, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkQueueWaitIdle"))) orelse return error.FunctionNotFound,
-                    .get_swapchain_images = @as(c.PFN_vkGetSwapchainImagesKHR, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkGetSwapchainImagesKHR"))) orelse return error.FunctionNotFound,
-                    .get_image_memory_requirements = @as(c.PFN_vkGetImageMemoryRequirements, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkGetImageMemoryRequirements"))) orelse return error.FunctionNotFound,
-                    .get_buffer_memory_requirements = @as(c.PFN_vkGetBufferMemoryRequirements, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkGetBufferMemoryRequirements"))) orelse return error.FunctionNotFound,
-                    .bind_buffer_memory = @as(c.PFN_vkBindBufferMemory, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkBindBufferMemory"))) orelse return error.FunctionNotFound,
-                    .bind_image_memory = @as(c.PFN_vkBindImageMemory, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkBindImageMemory"))) orelse return error.FunctionNotFound,
-                    .acquire_next_image = @as(c.PFN_vkAcquireNextImageKHR, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkAcquireNextImageKHR"))) orelse return error.FunctionNotFound,
-                    .wait_for_fences = @as(c.PFN_vkWaitForFences, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkWaitForFences"))) orelse return error.FunctionNotFound,
-                    .reset_fences= @as(c.PFN_vkResetFences, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkResetFences"))) orelse return error.FunctionNotFound,
-                    .create_swapchain = @as(c.PFN_vkCreateSwapchainKHR, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCreateSwapchainKHR"))) orelse return error.FunctionNotFound,
-                    .create_image = @as(c.PFN_vkCreateImage, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCreateImage"))) orelse return error.FunctionNotFound,
-                    .create_image_view = @as(c.PFN_vkCreateImageView, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCreateImageView"))) orelse return error.FunctionNotFound,
-                    .create_shader_module = @as(c.PFN_vkCreateShaderModule, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCreateShaderModule"))) orelse return error.FunctionNotFound,
-                    .create_pipeline_layout = @as(c.PFN_vkCreatePipelineLayout, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCreatePipelineLayout"))) orelse return error.FunctionNotFound,
-                    .create_render_pass = @as(c.PFN_vkCreateRenderPass, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCreateRenderPass"))) orelse return error.FunctionNotFound,
-                    .create_graphics_pipeline = @as(c.PFN_vkCreateGraphicsPipelines, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCreateGraphicsPipelines"))) orelse return error.FunctionNotFound,
-                    .create_framebuffer = @as(c.PFN_vkCreateFramebuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCreateFramebuffer"))) orelse return error.FunctionNotFound,
-                    .create_command_pool = @as(c.PFN_vkCreateCommandPool, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCreateCommandPool"))) orelse return error.FunctionNotFound,
-                    .create_semaphore = @as(c.PFN_vkCreateSemaphore, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCreateSemaphore"))) orelse return error.FunctionNotFound,
-                    .create_fence = @as(c.PFN_vkCreateFence, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCreateFence"))) orelse return error.FunctionNotFound,
-                    .create_buffer = @as(c.PFN_vkCreateBuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCreateBuffer"))) orelse return error.FunctionNotFound,
-                    .create_descriptor_set_layout = @as(c.PFN_vkCreateDescriptorSetLayout, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCreateDescriptorSetLayout"))) orelse return error.FunctionNotFound,
-                    .destroy_command_pool = @as(c.PFN_vkDestroyCommandPool, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroyCommandPool"))) orelse return error.FunctionNotFound,
-                    .create_descriptor_pool = @as(c.PFN_vkCreateDescriptorPool, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCreateDescriptorPool"))) orelse return error.FunctionNotFound,
-                    .destroy_pipeline = @as(c.PFN_vkDestroyPipeline, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroyPipeline"))) orelse return error.FunctionNotFound,
-                    .destroy_pipeline_layout = @as(c.PFN_vkDestroyPipelineLayout, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroyPipelineLayout"))) orelse return error.FunctionNotFound,
-                    .destroy_render_pass = @as(c.PFN_vkDestroyRenderPass, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroyRenderPass"))) orelse return error.FunctionNotFound,
-                    .destroy_swapchain = @as(c.PFN_vkDestroySwapchainKHR, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroySwapchainKHR"))) orelse return error.FunctionNotFound,
-                    .destroy_image_view = @as(c.PFN_vkDestroyImageView, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroyImageView"))) orelse return error.FunctionNotFound,
-                    .destroy_shader_module = @as(c.PFN_vkDestroyShaderModule, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroyShaderModule"))) orelse return error.FunctionNotFound,
-                    .destroy_semaphore = @as(c.PFN_vkDestroySemaphore, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroySemaphore"))) orelse return error.FunctionNotFound,
-                    .destroy_fence = @as(c.PFN_vkDestroyFence, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroyFence"))) orelse return error.FunctionNotFound,
-                    .destroy_framebuffer = @as(c.PFN_vkDestroyFramebuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroyFramebuffer"))) orelse return error.FunctionNotFound,
-                    .destroy_buffer = @as(c.PFN_vkDestroyBuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroyBuffer"))) orelse return error.FunctionNotFound,
-                    .destroy_descriptor_set_layout = @as(c.PFN_vkDestroyDescriptorSetLayout, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroyDescriptorSetLayout"))) orelse return error.FunctionNotFound,
-                    .destroy_descriptor_pool = @as(c.PFN_vkDestroyDescriptorPool, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroyDescriptorPool"))) orelse return error.FunctionNotFound,
-                    .begin_command_buffer = @as(c.PFN_vkBeginCommandBuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkBeginCommandBuffer"))) orelse return error.FunctionNotFound,
-                    .cmd_begin_render_pass = @as(c.PFN_vkCmdBeginRenderPass, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdBeginRenderPass"))) orelse return error.FunctionNotFound,
-                    .cmd_bind_pipeline = @as(c.PFN_vkCmdBindPipeline, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdBindPipeline"))) orelse return error.FunctionNotFound,
-                    .cmd_bind_vertex_buffer = @as(c.PFN_vkCmdBindVertexBuffers, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdBindVertexBuffers"))) orelse return error.FunctionNotFound,
-                    .cmd_bind_index_buffer = @as(c.PFN_vkCmdBindIndexBuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdBindIndexBuffer"))) orelse return error.FunctionNotFound,
-                    .cmd_set_viewport = @as(c.PFN_vkCmdSetViewport, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdSetViewport"))) orelse return error.FunctionNotFound,
-                    .cmd_set_scissor = @as(c.PFN_vkCmdSetScissor, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdSetScissor"))) orelse return error.FunctionNotFound,
-                    .cmd_draw = @as(c.PFN_vkCmdDraw, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdDraw"))) orelse return error.FunctionNotFound,
-                    .cmd_draw_indexed = @as(c.PFN_vkCmdDrawIndexed, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdDrawIndexed"))) orelse return error.FunctionNotFound,
-                    .cmd_copy_buffer = @as(c.PFN_vkCmdCopyBuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdCopyBuffer"))) orelse return error.FunctionNotFound,
-                    .cmd_push_constants = @as(c.PFN_vkCmdPushConstants, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdPushConstants"))) orelse return error.FunctionNotFound,
-                    .update_descriptor_sets = @as(c.PFN_vkUpdateDescriptorSets, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkUpdateDescriptorSets"))) orelse return error.FunctionNotFound,
-                    .cmd_bind_descriptor_sets = @as(c.PFN_vkCmdBindDescriptorSets, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdBindDescriptorSets"))) orelse return error.FunctionNotFound,
-                    .end_render_pass = @as(c.PFN_vkCmdEndRenderPass, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkCmdEndRenderPass"))) orelse return error.FunctionNotFound,
-                    .end_command_buffer = @as(c.PFN_vkEndCommandBuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkEndCommandBuffer"))) orelse return error.FunctionNotFound,
-                    .reset_command_buffer = @as(c.PFN_vkResetCommandBuffer, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkResetCommandBuffer"))) orelse return error.FunctionNotFound,
-                    .free_memory = @as(c.PFN_vkFreeMemory, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkFreeMemory"))) orelse return error.FunctionNotFound,
-                    .free_command_buffers = @as(c.PFN_vkFreeCommandBuffers, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkFreeCommandBuffers"))) orelse return error.FunctionNotFound,
-                    .free_descriptor_sets = @as(c.PFN_vkFreeDescriptorSets, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkFreeDescriptorSets"))) orelse return error.FunctionNotFound,
-                    .map_memory = @as(c.PFN_vkMapMemory, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkMapMemory"))) orelse return error.FunctionNotFound,
-                    .unmap_memory = @as(c.PFN_vkUnmapMemory, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkUnmapMemory"))) orelse return error.FunctionNotFound,
-                    .destroy = @as(c.PFN_vkDestroyDevice, @ptrCast(PFN_vkGetDeviceProcAddr(device, "vkDestroyDevice"))) orelse return error.FunctionNotFound,
-                },
                 .queues = queues,
                 .physical_device = physical_device,
             };
         }
 
-        fn get_device_queue(self: Device, family_index: u32) c.VkQueue {
-            var queue: c.VkQueue = undefined;
-            self.dispatch.get_device_queue(self.handle, family_index, 0, &queue);
-
-            return queue;
-        }
-
         fn get_swapchain_images(self: Device, swapchain: c.VkSwapchainKHR, allocator: std.mem.Allocator) ![]c.VkImage {
             var count: u32 = undefined;
 
-            try check(self.dispatch.get_swapchain_images(self.handle, swapchain, &count, null));
+            try check(vkGetSwapchainImagesKHR(self.handle, swapchain, &count, null));
             const images = try allocator.alloc(c.VkImage, count);
 
-            try check(self.dispatch.get_swapchain_images(self.handle, swapchain, &count, images.ptr));
+            try check(vkGetSwapchainImagesKHR(self.handle, swapchain, &count, images.ptr));
 
             return images;
         }
 
         fn get_image_memory_requirements(self: Device, image: c.VkImage) c.VkMemoryRequirements {
             var requirements: c.VkMemoryRequirements = undefined;
-            self.dispatch.get_image_memory_requirements(self.handle, image, &requirements);
+            vkGetImageMemoryRequirements(self.handle, image, &requirements);
 
             return requirements;
         }
 
         fn get_buffer_memory_requirements(self: Device, buffer: c.VkBuffer) c.VkMemoryRequirements {
             var requirements: c.VkMemoryRequirements = undefined;
-            self.dispatch.get_buffer_memory_requirements(self.handle, buffer, &requirements);
+            vkGetBufferMemoryRequirements(self.handle, buffer, &requirements);
 
             return requirements;
         }
 
         fn bind_buffer_memory(self: Device, buffer: c.VkBuffer, memory: c.VkDeviceMemory) !void {
-            try check(self.dispatch.bind_buffer_memory(self.handle, buffer, memory, 0));
+            try check(vkBindBufferMemory(self.handle, buffer, memory, 0));
         }
 
         fn bind_image_memory(self: Device, image: c.VkImage, memory: c.VkDeviceMemory) !void {
-            try check(self.dispatch.bind_image_memory(self.handle, image, memory, 0));
+            try check(vkBindImageMemory(self.handle, image, memory, 0));
         }
 
         fn create_image(self: Device, info: c.VkImageCreateInfo) !c.VkImage {
             var image: c.VkImage = undefined;
-            try check(self.dispatch.create_image(self.handle, &info, null, &image));
+            try check(vkCreateImage(self.handle, &info, null, &image));
 
             return image;
         }
 
         fn create_image_view(self: Device, info: c.VkImageViewCreateInfo) !c.VkImageView {
             var view: c.VkImageView = undefined;
-            try check(self.dispatch.create_image_view(self.handle, &info, null, &view));
+            try check(vkCreateImageView(self.handle, &info, null, &view));
 
             return view;
         }
 
         fn create_swapchain(self: Device, info: c.VkSwapchainCreateInfoKHR) !c.VkSwapchainKHR {
             var handle: c.VkSwapchainKHR = undefined;
-            try check(self.dispatch.create_swapchain(self.handle, &info, null, &handle));
+            try check(vkCreateSwapchainKHR(self.handle, &info, null, &handle));
 
             return handle;
         }
         fn create_shader_module(self: Device, info: c.VkShaderModuleCreateInfo) !c.VkShaderModule {
             var shader_module: c.VkShaderModule = undefined;
-            try check(self.dispatch.create_shader_module(self.handle, &info, null, &shader_module));
+            try check(vkCreateShaderModule(self.handle, &info, null, &shader_module));
 
             return shader_module;
         }
 
         fn create_pipeline_layout(self: Device, info: c.VkPipelineLayoutCreateInfo) !c.VkPipelineLayout {
             var layout: c.VkPipelineLayout = undefined;
-            try check(self.dispatch.create_pipeline_layout(self.handle, &info, null, &layout));
+            try check(vkCreatePipelineLayout(self.handle, &info, null, &layout));
 
             return layout;
         }
 
         fn create_descriptor_pool(self: Device, info: c.VkDescriptorPoolCreateInfo) !c.VkDescriptorPool {
             var pool: c.VkDescriptorPool = undefined;
-            try check(self.dispatch.create_descriptor_pool(self.handle, &info, null, &pool));
+            try check(vkCreateDescriptorPool(self.handle, &info, null, &pool));
 
             return pool;
         }
@@ -626,95 +453,95 @@ pub const Vulkan = struct {
         fn create_graphics_pipeline(self: Device, info: c.VkGraphicsPipelineCreateInfo) !c.VkPipeline {
             var pipeline: c.VkPipeline = undefined;
 
-            try check(self.dispatch.create_graphics_pipeline(self.handle, null, 1, &info, null, &pipeline));
+            try check(vkCreateGraphicsPipelines(self.handle, null, 1, &info, null, &pipeline));
 
             return pipeline;
         }
 
         fn create_render_pass(self: Device, info: c.VkRenderPassCreateInfo) !c.VkRenderPass {
             var render_pass: c.VkRenderPass = undefined;
-            try check(self.dispatch.create_render_pass(self.handle, &info, null, &render_pass));
+            try check(vkCreateRenderPass(self.handle, &info, null, &render_pass));
 
             return render_pass;
         }
 
         fn create_framebuffer(self: Device, info: c.VkFramebufferCreateInfo) !c.VkFramebuffer {
             var framebuffer: c.VkFramebuffer = undefined;
-            try check(self.dispatch.create_framebuffer(self.handle, &info, null, &framebuffer));
+            try check(vkCreateFramebuffer(self.handle, &info, null, &framebuffer));
 
             return framebuffer;
         }
 
         fn create_command_pool(self: Device, info: c.VkCommandPoolCreateInfo) !c.VkCommandPool {
             var command_pool: c.VkCommandPool = undefined;
-            try check(self.dispatch.create_command_pool(self.handle, &info, null, &command_pool));
+            try check(vkCreateCommandPool(self.handle, &info, null, &command_pool));
 
             return command_pool;
         }
 
         fn create_semaphore(self: Device, info: c.VkSemaphoreCreateInfo) !c.VkSemaphore {
             var semaphore: c.VkSemaphore = undefined;
-            try check(self.dispatch.create_semaphore(self.handle, &info, null, &semaphore));
+            try check(vkCreateSemaphore(self.handle, &info, null, &semaphore));
 
             return semaphore;
         }
 
         fn create_fence(self: Device, info: c.VkFenceCreateInfo) !c.VkFence {
             var fence: c.VkFence = undefined;
-            try check(self.dispatch.create_fence(self.handle, &info, null, &fence));
+            try check(vkCreateFence(self.handle, &info, null, &fence));
 
             return fence;
         }
 
         fn create_buffer(self: Device, info: c.VkBufferCreateInfo) !c.VkBuffer {
             var buffer: c.VkBuffer = undefined;
-            try check(self.dispatch.create_buffer(self.handle, &info, null, &buffer));
+            try check(vkCreateBuffer(self.handle, &info, null, &buffer));
 
             return buffer;
         }
 
         fn create_descriptor_set_layout(self: Device, info: c.VkDescriptorSetLayoutCreateInfo) !c.VkDescriptorSetLayout {
             var desc: c.VkDescriptorSetLayout = undefined;
-            try check(self.dispatch.create_descriptor_set_layout(self.handle, &info, null, &desc));
+            try check(vkCreateDescriptorSetLayout(self.handle, &info, null, &desc));
 
             return desc;
         }
 
         fn map_memory(self: Device, memory: c.VkDeviceMemory, comptime T: type, len: usize, dst: *?*anyopaque) !void {
-            try check(self.dispatch.map_memory(self.handle, memory, 0, len * @sizeOf(T), 0, dst));
+            try check(vkMapMemory(self.handle, memory, 0, len * @sizeOf(T), 0, dst));
         }
 
         fn unmap_memory(self: Device, memory: c.VkDeviceMemory) void {
-            self.dispatch.unmap_memory(self.handle, memory);
+            vkUnmapMemory(self.handle, memory);
         }
 
         fn wait_for_fences(self: Device, fence: *c.VkFence) !void {
             // const MAX: u64 = 0xFFFFFFFFFFFFFFFF;
             const MAX: u64 = 0xFFFFFF;
-            try check(self.dispatch.wait_for_fences(self.handle, 1, fence, c.VK_TRUE, MAX));
+            try check(vkWaitForFences(self.handle, 1, fence, c.VK_TRUE, MAX));
         }
 
         fn reset_fences(self: Device, fence: *c.VkFence) !void {
-            try check(self.dispatch.reset_fences(self.handle, 1, fence));
+            try check(vkResetFences(self.handle, 1, fence));
         }
 
         fn allocate_command_buffers(self: Device, info: c.VkCommandBufferAllocateInfo, allocator: std.mem.Allocator) ![]c.VkCommandBuffer {
             var command_buffers = try allocator.alloc(c.VkCommandBuffer, info.commandBufferCount);
-            try check(self.dispatch.allocate_command_buffers(self.handle, &info, &command_buffers[0]));
+            try check(vkAllocateCommandBuffers(self.handle, &info, &command_buffers[0]));
 
             return command_buffers;
         }
 
         fn allocate_descriptor_sets(self: Device, info: c.VkDescriptorSetAllocateInfo, allocator: std.mem.Allocator) ![]c.VkDescriptorSet {
             var descriptor = try allocator.alloc(c.VkDescriptorSet, info.descriptorSetCount);
-            try check(self.dispatch.allocate_descriptor_sets(self.handle, &info, &descriptor[0]));
+            try check(vkAllocateDescriptorSets(self.handle, &info, &descriptor[0]));
 
             return descriptor;
         }
 
         fn allocate_memory(self: Device, info: c.VkMemoryAllocateInfo) !c.VkDeviceMemory {
             var memory: c.VkDeviceMemory = undefined;
-            try check(self.dispatch.allocate_memory(self.handle, &info, null, &memory));
+            try check(vkAllocateMemory(self.handle, &info, null, &memory));
 
             return memory;
         }
@@ -723,154 +550,170 @@ pub const Vulkan = struct {
             const MAX: u64 = 0xFFFFFFFFFFFFFFFF;
             var index: u32 = undefined;
 
-            try check(self.dispatch.acquire_next_image(self.handle, swapchain, MAX, semaphore, null, &index));
+            try check(vkAcquireNextImageKHR(self.handle, swapchain, MAX, semaphore, null, &index));
 
             return index;
         }
 
         fn queue_submit(self: Device, info: c.VkSubmitInfo, fence: c.VkFence) !void {
-            try check(self.dispatch.queue_submit(self.queues[0].handle, 1, &info, fence));
+            try check(vkQueueSubmit(self.queues[0].handle, 1, &info, fence));
         }
 
         fn queue_present(self: Device, info: c.VkPresentInfoKHR) !void {
-            try check(self.dispatch.queue_present(self.queues[1].handle, &info));
+            try check(vkQueuePresentKHR(self.queues[1].handle, &info));
         }
 
         fn queue_wait_idle(self: Device, queue: c.VkQueue) !void {
-            try check(self.dispatch.queue_wait_idle(queue));
+            _ = self;
+            try check(vkQueueWaitIdle(queue));
         }
 
         fn begin_command_buffer(self: Device, command_buffer: c.VkCommandBuffer, info: c.VkCommandBufferBeginInfo) !void {
-            try check(self.dispatch.begin_command_buffer(command_buffer, &info));
+            _ = self;
+            try check(vkBeginCommandBuffer(command_buffer, &info));
         }
 
         fn cmd_begin_render_pass(self: Device, command_buffer: c.VkCommandBuffer, info: c.VkRenderPassBeginInfo) void {
-            self.dispatch.cmd_begin_render_pass(command_buffer, &info, c.VK_SUBPASS_CONTENTS_INLINE);
+            _ = self;
+            vkCmdBeginRenderPass(command_buffer, &info, c.VK_SUBPASS_CONTENTS_INLINE);
         }
 
         fn cmd_bind_pipeline(self: Device, command_buffer: c.VkCommandBuffer, pipeline: c.VkPipeline) void {
-            self.dispatch.cmd_bind_pipeline(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+            _ = self;
+            vkCmdBindPipeline(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         }
 
         fn cmd_bind_vertex_buffer(self: Device, command_buffer: c.VkCommandBuffer, buffer: c.VkBuffer) void {
-            self.dispatch.cmd_bind_vertex_buffer(command_buffer, 0, 1, &buffer, &0);
+            _ = self;
+            vkCmdBindVertexBuffers(command_buffer, 0, 1, &buffer, &0);
         }
 
         fn cmd_bind_index_buffer(self: Device, command_buffer: c.VkCommandBuffer, buffer: c.VkBuffer) void {
-            self.dispatch.cmd_bind_index_buffer(command_buffer, buffer, 0, c.VK_INDEX_TYPE_UINT16);
+            _ = self;
+            vkCmdBindIndexBuffer(command_buffer, buffer, 0, c.VK_INDEX_TYPE_UINT16);
         }
 
         fn cmd_set_viewport(self: Device, command_buffer: c.VkCommandBuffer, viewport: c.VkViewport) void {
-            self.dispatch.cmd_set_viewport(command_buffer, 0, 1, &viewport);
+            _ = self;
+            vkCmdSetViewport(command_buffer, 0, 1, &viewport);
         }
 
         fn cmd_set_scissor(self: Device, command_buffer: c.VkCommandBuffer, scissor: c.VkRect2D) void {
-            self.dispatch.cmd_set_scissor(command_buffer, 0, 1, &scissor);
+            _ = self;
+            vkCmdSetScissor(command_buffer, 0, 1, &scissor);
         }
 
         fn cmd_copy_buffer(self: Device, command_buffer: c.VkCommandBuffer, src: c.VkBuffer, dst: c.VkBuffer, copy: c.VkBufferCopy) void {
-            self.dispatch.cmd_copy_buffer(command_buffer, src, dst, 1, &copy);
+            _ = self;
+            vkCmdCopyBuffer(command_buffer, src, dst, 1, &copy);
         }
 
         fn cmd_draw(self: Device, command_buffer: c.VkCommandBuffer, size: u32) void {
-            self.dispatch.cmd_draw(command_buffer, size, 1, 0, 0);
+            _ = self;
+            vkCmdDraw(command_buffer, size, 1, 0, 0);
         }
 
         fn cmd_draw_indexed(self: Device, command_buffer: c.VkCommandBuffer, size: u32) void {
-            self.dispatch.cmd_draw_indexed(command_buffer, size, 1, 0, 0, 0);
+            _ = self;
+            vkCmdDrawIndexed(command_buffer, size, 1, 0, 0, 0);
         }
 
         fn cmd_bind_descriptor_sets(self: Device, command_buffer: c.VkCommandBuffer, layout: c.VkPipelineLayout, first: u32, count: u32, descriptor_sets: []const c.VkDescriptorSet, offsets: ?[]const u32) void {
+            _ = self;
             const len: u32 = if (offsets) |o| @as(u32, @intCast(o.len)) else 0;
-            self.dispatch.cmd_bind_descriptor_sets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, layout, first, count, descriptor_sets.ptr, len, @ptrCast(offsets));
+            vkCmdBindDescriptorSets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, layout, first, count, descriptor_sets.ptr, len, @ptrCast(offsets));
         }
 
         fn cmd_push_constants(self: Device, command_buffer: c.VkCommandBuffer, layout: c.VkPipelineLayout, offset: u32, size: u32, value: ?*const anyopaque) void {
-            self.dispatch.cmd_push_constants(command_buffer, layout, c.VK_SHADER_STAGE_VERTEX_BIT, offset, size, value);
+            _ = self;
+            vkCmdPushConstants(command_buffer, layout, c.VK_SHADER_STAGE_VERTEX_BIT, offset, size, value);
         }
 
         fn update_descriptor_sets(self: Device, write: c.VkWriteDescriptorSet) void {
-            self.dispatch.update_descriptor_sets(self.handle, 1, &write, 0, null);
+            vkUpdateDescriptorSets(self.handle, 1, &write, 0, null);
         }
 
         fn end_render_pass(self: Device, command_buffer: c.VkCommandBuffer) void {
-            self.dispatch.end_render_pass(command_buffer);
+            _ = self;
+            vkCmdEndRenderPass(command_buffer);
         }
 
         fn end_command_buffer(self: Device, command_buffer: c.VkCommandBuffer) !void {
-            try check(self.dispatch.end_command_buffer(command_buffer));
+            _ = self;
+            try check(vkEndCommandBuffer(command_buffer));
         }
 
         fn reset_command_buffer(self: Device, command_buffer: c.VkCommandBuffer) !void {
-            try check(self.dispatch.reset_command_buffer(command_buffer, 0));
+            _ = self;
+            try check(vkResetCommandBuffer(command_buffer, 0));
         }
 
         fn destroy_command_pool(self: Device, command_pool: c.VkCommandPool) void {
-            self.dispatch.destroy_command_pool(self.handle, command_pool, null);
+            vkDestroyCommandPool(self.handle, command_pool, null);
         }
 
         fn destroy_swapchain(self: Device, swapchain: c.VkSwapchainKHR) void {
-            self.dispatch.destroy_swapchain(self.handle, swapchain, null);
+            vkDestroySwapchainKHR(self.handle, swapchain, null);
         }
 
         fn destroy_shader_module(self: Device, shader_module: c.VkShaderModule) void {
-            self.dispatch.destroy_shader_module(self.handle, shader_module, null);
+            vkDestroyShaderModule(self.handle, shader_module, null);
         }
 
         fn destroy_pipeline(self: Device, pipeline: c.VkPipeline) void {
-            self.dispatch.destroy_pipeline(self.handle, pipeline, null);
+            vkDestroyPipeline(self.handle, pipeline, null);
         }
 
         fn destroy_pipeline_layout(self: Device, pipeline_layout: c.VkPipelineLayout) void {
-            self.dispatch.destroy_pipeline_layout(self.handle, pipeline_layout, null);
+            vkDestroyPipelineLayout(self.handle, pipeline_layout, null);
         }
 
         fn destroy_render_pass(self: Device, render_pass: c.VkRenderPass) void {
-            self.dispatch.destroy_render_pass(self.handle, render_pass, null);
+            vkDestroyRenderPass(self.handle, render_pass, null);
         }
 
         fn destroy_semaphore(self: Device, semaphore: c.VkSemaphore) void {
-            self.dispatch.destroy_semaphore(self.handle, semaphore, null);
+            vkDestroySemaphore(self.handle, semaphore, null);
         }
 
         fn destroy_fence(self: Device, fence: c.VkFence) void {
-            self.dispatch.destroy_fence(self.handle, fence, null);
+            vkDestroyFence(self.handle, fence, null);
         }
 
         fn destroy_image_view(self: Device, image_view: c.VkImageView) void {
-            self.dispatch.destroy_image_view(self.handle, image_view, null);
+            vkDestroyImageView(self.handle, image_view, null);
         }
 
         fn destroy_framebuffer(self: Device, framebuffer: c.VkFramebuffer) void {
-            self.dispatch.destroy_framebuffer(self.handle, framebuffer, null);
+            vkDestroyFramebuffer(self.handle, framebuffer, null);
         }
 
         fn destroy_buffer(self: Device, buffer: c.VkBuffer) void {
-            self.dispatch.destroy_buffer(self.handle, buffer, null);
+            vkDestroyBuffer(self.handle, buffer, null);
         }
 
         fn destroy_descriptor_set_layout(self: Device, layout: c.VkDescriptorSetLayout) void {
-            self.dispatch.destroy_descriptor_set_layout(self.handle, layout, null);
+            vkDestroyDescriptorSetLayout(self.handle, layout, null);
         }
 
         fn destroy_descriptor_pool(self: Device, pool: c.VkDescriptorPool) void {
-            self.dispatch.destroy_descriptor_pool(self.handle, pool, null);
+            vkDestroyDescriptorPool(self.handle, pool, null);
         }
 
         fn free_memory(self: Device, memory: c.VkDeviceMemory) void {
-            self.dispatch.free_memory(self.handle, memory, null);
+            vkFreeMemory(self.handle, memory, null);
         }
 
         fn free_command_buffer(self: Device, command_pool: c.VkCommandPool, command_buffer: c.VkCommandBuffer) void {
-            self.dispatch.free_command_buffers(self.handle, command_pool, 1, &command_buffer);
+            vkFreeCommandBuffers(self.handle, command_pool, 1, &command_buffer);
         }
 
         fn free_descriptor_sets(self: Device, descriptor_pool: c.VkDescriptorPool, n: usize, descriptor_sets: []const c.VkDescriptorSet) !void {
-            try check(self.dispatch.free_descriptor_sets(self.handle, descriptor_pool, @intCast(n), &descriptor_sets[0]));
+            try check(vkFreeDescriptorSets(self.handle, descriptor_pool, @intCast(n), &descriptor_sets[0]));
         }
 
         fn destroy(self: Device) void {
-            self.dispatch.destroy(self.handle, null);
+            vkDestroyDevice(self.handle, null);
         }
     };
 
@@ -883,19 +726,32 @@ pub const Vulkan = struct {
         depth_image_memory: c.VkDeviceMemory,
         arena: std.heap.ArenaAllocator,
 
-        fn new(device: Device, instance: Instance, window: Window, graphics_pipeline: GraphicsPipeline, opt_arena: ?std.heap.ArenaAllocator) !Swapchain {
-            var arena = opt_arena orelse std.heap.ArenaAllocator.init(std.heap.page_allocator);
-            const allocator = arena.allocator();
+        fn new(device: Device, opt_swapchain: ?Swapchain, instance: Instance, window: Window, graphics_pipeline: GraphicsPipeline) !Swapchain {
+            var swapchain = blk: {
+                if (opt_swapchain) |swapchain| {
+                    break :blk swapchain;
+                } else {
+                    break :blk Swapchain {
+                        .handle = null,
+                        .extent = window.extent,
+                        .image_views = undefined,
+                        .framebuffers = undefined,
+                        .depth_image_view = undefined,
+                        .depth_image_memory = undefined,
+                        .arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
+                    };
+                }
+            };
 
+            const allocator = swapchain.arena.allocator();
             const present_mode = c.VK_PRESENT_MODE_FIFO_KHR;
-
             const capabilities = instance.get_physical_device_surface_capabilities(device.physical_device, window.surface) catch |e| {
                 logger.log(.Error, "Could not access physical device capabilities", .{});
 
                 return e;
             };
 
-            const extent: c.VkExtent2D = blk: {
+            swapchain.extent = blk: {
                 if (capabilities.currentExtent.width != 0xFFFFFFFF) {
                     break :blk capabilities.currentExtent;
                 } else {
@@ -920,13 +776,15 @@ pub const Vulkan = struct {
                 return e;
             };
 
-            const handle = device.create_swapchain(.{
+            // swapchain.destroy(device, false);
+            const old_handle = swapchain.handle;
+            swapchain.handle = device.create_swapchain(.{
                 .sType = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
                 .surface = window.surface,
                 .minImageCount = image_count,
                 .imageFormat = graphics_pipeline.format.format,
                 .imageColorSpace = graphics_pipeline.format.colorSpace,
-                .imageExtent = extent,
+                .imageExtent = swapchain.extent,
                 .imageSharingMode = if (uniques_queue_family_index.items.len == 1) c.VK_SHARING_MODE_EXCLUSIVE else c.VK_SHARING_MODE_CONCURRENT,
                 .presentMode = present_mode,
                 .preTransform = capabilities.currentTransform,
@@ -936,29 +794,29 @@ pub const Vulkan = struct {
                 .imageUsage = c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
                 .queueFamilyIndexCount = @as(u32, @intCast(uniques_queue_family_index.items.len)),
                 .pQueueFamilyIndices = uniques_queue_family_index.items.ptr,
-                .oldSwapchain = null,
+                .oldSwapchain = old_handle,
             }) catch |e| {
                 logger.log(.Error, "Failed to create sawpchain", .{});
 
                 return e;
             };
 
-            _ = arena.reset(.free_all);
+            device.destroy_swapchain(old_handle);
 
-            const images = device.get_swapchain_images(handle, allocator) catch |e| {
+            const images = device.get_swapchain_images(swapchain.handle, allocator) catch |e| {
                 logger.log(.Error, "Failed to get swapchain images", .{});
 
                 return e;
             };
 
-            var image_views = ArrayList(c.VkImageView).init(allocator, @intCast(images.len)) catch |e| {
+            swapchain.image_views = ArrayList(c.VkImageView).init(allocator, @intCast(images.len)) catch |e| {
                 logger.log(.Error, "Could not allocate image views array", .{});
 
                 return e;
             };
 
             for (0..images.len) |i| {
-                image_views.push(device.create_image_view(.{
+                swapchain.image_views.push(device.create_image_view(.{
                     .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
                     .image = images[i],
                     .format = graphics_pipeline.format.format,
@@ -991,8 +849,8 @@ pub const Vulkan = struct {
                 .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
                 .imageType = c.VK_IMAGE_TYPE_2D,
                 .extent = .{
-                    .width = extent.width,
-                    .height = extent.height,
+                    .width = swapchain.extent.width,
+                    .height = swapchain.extent.height,
                     .depth = 1,
                 },
                 .mipLevels = 1,
@@ -1021,7 +879,7 @@ pub const Vulkan = struct {
                 return error.NoMemoryRequirementsPassed;
             };
 
-            const depth_image_memory = device.allocate_memory(.{
+            swapchain.depth_image_memory = device.allocate_memory(.{
                 .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
                 .allocationSize = image_memory_requirements.size,
                 .memoryTypeIndex = @intCast(memory_index),
@@ -1031,13 +889,13 @@ pub const Vulkan = struct {
                 return e;
             };
 
-            device.bind_image_memory(depth_image, depth_image_memory) catch |e| {
+            device.bind_image_memory(depth_image, swapchain.depth_image_memory) catch |e| {
                 logger.log(.Error, "Failed to bind depth image memory", .{});
 
                 return e;
             };
 
-            const depth_image_view = device.create_image_view(.{
+            swapchain.depth_image_view = device.create_image_view(.{
                 .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
                 .image = depth_image,
                 .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
@@ -1055,41 +913,31 @@ pub const Vulkan = struct {
                 return e;
             };
 
-            var framebuffers = ArrayList(c.VkFramebuffer).init(allocator, @intCast(images.len)) catch {
+            swapchain.framebuffers = ArrayList(c.VkFramebuffer).init(allocator, @intCast(images.len)) catch {
                 logger.log(.Error, "Failed to create framebuffers array",  .{});
 
                 return error.OutOfMemory;
             };
 
-            for (0..image_views.items.len) |i| {
-                framebuffers.push(device.create_framebuffer(.{
+            for (0..swapchain.image_views.items.len) |i| {
+                try swapchain.framebuffers.push(device.create_framebuffer(.{
                     .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
                     .renderPass = graphics_pipeline.render_pass,
                     .attachmentCount = 2,
-                    .pAttachments = &[_]c.VkImageView {image_views.items[i], depth_image_view},
-                    .width = extent.width,
-                    .height = extent.height,
+                    .pAttachments = &[_]c.VkImageView {swapchain.image_views.items[i], swapchain.depth_image_view},
+                    .width = swapchain.extent.width,
+                    .height = swapchain.extent.height,
                     .layers = 1,
                 }) catch |e| {
                     logger.log(.Error, "Failed to crate frambuffer", .{});
 
                     return e;
-                }) catch |e| {
-                    logger.log(.Error, "Could not insert element in framebuffes array", .{});
+                });
 
-                    return e;
-                    };
-                }
+            }
 
-            return .{
-                .handle = handle,
-                .image_views = image_views,
-                .framebuffers = framebuffers,
-                .extent = extent,
-                .depth_image_view = depth_image_view,
-                .depth_image_memory = depth_image_memory,
-                .arena = arena,
-            };
+
+            return swapchain;
         }
 
         fn recreate(
@@ -1130,18 +978,16 @@ pub const Vulkan = struct {
                 std.time.sleep(60 * Sync.default);
             }
 
+            self.* = try Swapchain.new(device, self.*, instance, window.*, pipeline);
+            // device.destroy_swapchain(self.handle);
 
-            self.destroy(device);
-
-            const new_swapchain = try Swapchain.new(device, instance, window.*, pipeline, self.arena);
-
-            self.handle = new_swapchain.handle;
-            self.extent = new_swapchain.extent;
-            self.image_views = new_swapchain.image_views;
-            self.framebuffers = new_swapchain.framebuffers;
-            self.depth_image_view = new_swapchain.depth_image_view;
-            self.depth_image_memory = new_swapchain.depth_image_memory;
-            self.arena = new_swapchain.arena;
+            // self.handle = new_swapchain.handle;
+            // self.extent = new_swapchain.extent;
+            // self.image_views = new_swapchain.image_views;
+            // self.framebuffers = new_swapchain.framebuffers;
+            // self.depth_image_view = new_swapchain.depth_image_view;
+            // self.depth_image_memory = new_swapchain.depth_image_memory;
+            // self.arena = new_swapchain.arena;
 
             command_pool.invalidate_all();
         }
@@ -1211,10 +1057,13 @@ pub const Vulkan = struct {
             });
         }
 
-        fn destroy(self: *Swapchain, device: Device) void {
+        fn destroy(self: *Swapchain, device: Device, destroy_handle: bool) void {
             device.free_memory(self.depth_image_memory);
             device.destroy_image_view(self.depth_image_view);
-            device.destroy_swapchain(self.handle);
+
+            if (destroy_handle) {
+                device.destroy_swapchain(self.handle);
+            }
 
             _ = self.arena.reset(.free_all);
         }
@@ -1410,7 +1259,7 @@ pub const Vulkan = struct {
             const vert_module = device.create_shader_module(.{
                 .sType = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
                 .codeSize = vert_code.len,
-                .pCode = @as([*c]const u32, @ptrCast(@alignCast(vert_code))),
+                .pCode = @as([*]const u32, @ptrCast(@alignCast(vert_code))),
             }) catch |e| {
                 logger.log(.Error, "Failed to create vertex shader module", .{});
 
@@ -1422,7 +1271,7 @@ pub const Vulkan = struct {
             const frag_module = device.create_shader_module(.{
                 .sType = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
                 .codeSize = frag_code.len,
-                .pCode = @as([*c]const u32, @ptrCast(@alignCast(frag_code))),
+                .pCode = @as([*]const u32, @ptrCast(@alignCast(frag_code))),
             }) catch |e| {
                 logger.log(.Error, "Failed to create fragment shader module", .{});
 
@@ -1473,16 +1322,16 @@ pub const Vulkan = struct {
                 .pViewports = &.{
                     .x = 0.0,
                     .y = 0.0,
-                    .width = @as(f32, @floatFromInt(configuration.default_width)),
-                    .height = @as(f32, @floatFromInt(configuration.default_height)),
+                    .width = @as(f32, @floatFromInt(window.extent.width)),
+                    .height = @as(f32, @floatFromInt(window.extent.height)),
                     .minDepth = 0.0,
                     .maxDepth = 1.0,
                 },
                 .pScissors = &.{
                     .offset = .{.x = 0, .y = 0},
                     .extent = .{
-                        .width = configuration.default_width,
-                        .height = configuration.default_height,
+                        .width = window.extent.width,
+                        .height = window.extent.height,
                     }
                 },
             };
@@ -2341,7 +2190,7 @@ pub const Vulkan = struct {
             return e;
         };
 
-        const swapchain = Swapchain.new(device, instance, window, graphics_pipeline, null) catch |e| {
+        const swapchain = Swapchain.new(device, null, instance, window, graphics_pipeline) catch |e| {
             logger.log(.Error, "Failed to create swapchain", .{});
 
             return e;
@@ -2381,13 +2230,7 @@ pub const Vulkan = struct {
         self.sync.update(self.device);
 
         if (game.object_handle.has_change() or game.camera.changed) {
-            self.data.register_changes(
-                self.device,
-                self.instance.get_physical_device_memory_properties(self.device.physical_device),
-                &self.graphics_pipeline.descriptor,
-                &self.command_pool,
-                game,
-            ) catch |e| {
+            self.data.register_changes(self.device, self.instance.get_physical_device_memory_properties(self.device.physical_device), &self.graphics_pipeline.descriptor, &self.command_pool, game) catch |e| {
                 logger.log(.Error, "Failed to register changes in frame", .{});
 
                 return e;
@@ -2402,7 +2245,7 @@ pub const Vulkan = struct {
         self.data.destroy(self.device);
         self.sync.destroy(self.device);
         self.graphics_pipeline.destroy(self.device);
-        self.swapchain.destroy(self.device);
+        self.swapchain.destroy(self.device, true);
         self.device.destroy();
         self.window.destroy(self.instance);
         self.instance.destroy();
@@ -2522,3 +2365,173 @@ pub const Vulkan = struct {
         return flag == c.VK_TRUE;
     }
 };
+
+fn populate_instance_functions(instance: c.VkInstance) !void {
+    const vkGetInstanceProcAddr = try Platform.get_instance_procaddr(instance);
+
+    vkDestroySurfaceKHR = @as(c.PFN_vkDestroySurfaceKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkDestroySurfaceKHR"))) orelse return error.FunctionNotFound;
+    vkEnumeratePhysicalDevices = @as(c.PFN_vkEnumeratePhysicalDevices, @ptrCast(vkGetInstanceProcAddr(instance, "vkEnumeratePhysicalDevices"))) orelse return error.FunctionNotFound;
+    vkEnumerateDeviceExtensionProperties = @as(c.PFN_vkEnumerateDeviceExtensionProperties, @ptrCast(vkGetInstanceProcAddr(instance, "vkEnumerateDeviceExtensionProperties"))) orelse return error.FunctionNotFound;
+    vkGetPhysicalDeviceProperties = @as(c.PFN_vkGetPhysicalDeviceProperties, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties"))) orelse return error.FunctionNotFound;
+    vkGetPhysicalDeviceFeatures = @as(c.PFN_vkGetPhysicalDeviceFeatures, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures"))) orelse return error.FunctionNotFound;
+    vkGetPhysicalDeviceSurfaceFormatsKHR = @as(c.PFN_vkGetPhysicalDeviceSurfaceFormatsKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceFormatsKHR"))) orelse return error.FunctionNotFound;
+    vkGetPhysicalDeviceSurfacePresentModesKHR = @as(c.PFN_vkGetPhysicalDeviceSurfacePresentModesKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfacePresentModesKHR"))) orelse return error.FunctionNotFound;
+    vkGetPhysicalDeviceQueueFamilyProperties = @as(c.PFN_vkGetPhysicalDeviceQueueFamilyProperties, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceQueueFamilyProperties"))) orelse return error.FunctionNotFound;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR = @as(c.PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR"))) orelse return error.FunctionNotFound;
+    vkGetPhysicalDeviceSurfaceSupportKHR = @as(c.PFN_vkGetPhysicalDeviceSurfaceSupportKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceSupportKHR"))) orelse return error.FunctionNotFound;
+    vkGetPhysicalDeviceMemoryProperties = @as(c.PFN_vkGetPhysicalDeviceMemoryProperties, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceMemoryProperties"))) orelse return error.FunctionNotFound;
+    vkGetPhysicalDeviceFormatProperties = @as(c.PFN_vkGetPhysicalDeviceFormatProperties, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFormatProperties"))) orelse return error.FunctionNotFound;
+    vkCreateDevice = @as(c.PFN_vkCreateDevice, @ptrCast(vkGetInstanceProcAddr(instance, "vkCreateDevice"))) orelse return error.FunctionNotFound;
+    vkGetDeviceProcAddr = @as(c.PFN_vkGetDeviceProcAddr, @ptrCast(c.glfwGetInstanceProcAddress(instance, "vkGetDeviceProcAddr"))) orelse return error.FunctionNotFound;
+    vkDestroyInstance = @as(c.PFN_vkDestroyInstance, @ptrCast(vkGetInstanceProcAddr(instance, "vkDestroyInstance"))) orelse return error.FunctionNotFound;
+
+}
+
+pub fn populate_device_functions(device: c.VkDevice) !void {
+    vkAllocateCommandBuffers = @as(c.PFN_vkAllocateCommandBuffers, @ptrCast(vkGetDeviceProcAddr(device, "vkAllocateCommandBuffers"))) orelse return error.FunctionNotFound;
+    vkAllocateMemory = @as(c.PFN_vkAllocateMemory, @ptrCast(vkGetDeviceProcAddr(device, "vkAllocateMemory"))) orelse return error.FunctionNotFound;
+    vkAllocateDescriptorSets = @as(c.PFN_vkAllocateDescriptorSets, @ptrCast(vkGetDeviceProcAddr(device, "vkAllocateDescriptorSets"))) orelse return error.FunctionNotFound;
+    vkGetDeviceQueue = @as(c.PFN_vkGetDeviceQueue, @ptrCast(vkGetDeviceProcAddr(device, "vkGetDeviceQueue"))) orelse return error.FunctionNotFound;
+    vkQueueSubmit = @as(c.PFN_vkQueueSubmit, @ptrCast(vkGetDeviceProcAddr(device, "vkQueueSubmit"))) orelse return error.FunctionNotFound;
+    vkQueuePresentKHR = @as(c.PFN_vkQueuePresentKHR, @ptrCast(vkGetDeviceProcAddr(device, "vkQueuePresentKHR"))) orelse return error.FunctionNotFound;
+    vkQueueWaitIdle = @as(c.PFN_vkQueueWaitIdle, @ptrCast(vkGetDeviceProcAddr(device, "vkQueueWaitIdle"))) orelse return error.FunctionNotFound;
+    vkGetSwapchainImagesKHR = @as(c.PFN_vkGetSwapchainImagesKHR, @ptrCast(vkGetDeviceProcAddr(device, "vkGetSwapchainImagesKHR"))) orelse return error.FunctionNotFound;
+    vkGetImageMemoryRequirements = @as(c.PFN_vkGetImageMemoryRequirements, @ptrCast(vkGetDeviceProcAddr(device, "vkGetImageMemoryRequirements"))) orelse return error.FunctionNotFound;
+    vkGetBufferMemoryRequirements = @as(c.PFN_vkGetBufferMemoryRequirements, @ptrCast(vkGetDeviceProcAddr(device, "vkGetBufferMemoryRequirements"))) orelse return error.FunctionNotFound;
+    vkBindBufferMemory = @as(c.PFN_vkBindBufferMemory, @ptrCast(vkGetDeviceProcAddr(device, "vkBindBufferMemory"))) orelse return error.FunctionNotFound;
+    vkBindImageMemory = @as(c.PFN_vkBindImageMemory, @ptrCast(vkGetDeviceProcAddr(device, "vkBindImageMemory"))) orelse return error.FunctionNotFound;
+    vkAcquireNextImageKHR = @as(c.PFN_vkAcquireNextImageKHR, @ptrCast(vkGetDeviceProcAddr(device, "vkAcquireNextImageKHR"))) orelse return error.FunctionNotFound;
+    vkWaitForFences = @as(c.PFN_vkWaitForFences, @ptrCast(vkGetDeviceProcAddr(device, "vkWaitForFences"))) orelse return error.FunctionNotFound;
+    vkResetFences= @as(c.PFN_vkResetFences, @ptrCast(vkGetDeviceProcAddr(device, "vkResetFences"))) orelse return error.FunctionNotFound;
+    vkCreateSwapchainKHR = @as(c.PFN_vkCreateSwapchainKHR, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateSwapchainKHR"))) orelse return error.FunctionNotFound;
+    vkCreateImage = @as(c.PFN_vkCreateImage, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateImage"))) orelse return error.FunctionNotFound;
+    vkCreateImageView = @as(c.PFN_vkCreateImageView, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateImageView"))) orelse return error.FunctionNotFound;
+    vkCreateShaderModule = @as(c.PFN_vkCreateShaderModule, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateShaderModule"))) orelse return error.FunctionNotFound;
+    vkCreatePipelineLayout = @as(c.PFN_vkCreatePipelineLayout, @ptrCast(vkGetDeviceProcAddr(device, "vkCreatePipelineLayout"))) orelse return error.FunctionNotFound;
+    vkCreateRenderPass = @as(c.PFN_vkCreateRenderPass, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateRenderPass"))) orelse return error.FunctionNotFound;
+    vkCreateGraphicsPipelines = @as(c.PFN_vkCreateGraphicsPipelines, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateGraphicsPipelines"))) orelse return error.FunctionNotFound;
+    vkCreateFramebuffer = @as(c.PFN_vkCreateFramebuffer, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateFramebuffer"))) orelse return error.FunctionNotFound;
+    vkCreateCommandPool = @as(c.PFN_vkCreateCommandPool, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateCommandPool"))) orelse return error.FunctionNotFound;
+    vkCreateSemaphore = @as(c.PFN_vkCreateSemaphore, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateSemaphore"))) orelse return error.FunctionNotFound;
+    vkCreateFence = @as(c.PFN_vkCreateFence, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateFence"))) orelse return error.FunctionNotFound;
+    vkCreateBuffer = @as(c.PFN_vkCreateBuffer, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateBuffer"))) orelse return error.FunctionNotFound;
+    vkCreateDescriptorSetLayout = @as(c.PFN_vkCreateDescriptorSetLayout, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateDescriptorSetLayout"))) orelse return error.FunctionNotFound;
+    vkDestroyCommandPool = @as(c.PFN_vkDestroyCommandPool, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyCommandPool"))) orelse return error.FunctionNotFound;
+    vkCreateDescriptorPool = @as(c.PFN_vkCreateDescriptorPool, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateDescriptorPool"))) orelse return error.FunctionNotFound;
+    vkDestroyPipeline = @as(c.PFN_vkDestroyPipeline, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyPipeline"))) orelse return error.FunctionNotFound;
+    vkDestroyPipelineLayout = @as(c.PFN_vkDestroyPipelineLayout, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyPipelineLayout"))) orelse return error.FunctionNotFound;
+    vkDestroyRenderPass = @as(c.PFN_vkDestroyRenderPass, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyRenderPass"))) orelse return error.FunctionNotFound;
+    vkDestroySwapchainKHR = @as(c.PFN_vkDestroySwapchainKHR, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroySwapchainKHR"))) orelse return error.FunctionNotFound;
+    vkDestroyImageView = @as(c.PFN_vkDestroyImageView, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyImageView"))) orelse return error.FunctionNotFound;
+    vkDestroyShaderModule = @as(c.PFN_vkDestroyShaderModule, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyShaderModule"))) orelse return error.FunctionNotFound;
+    vkDestroySemaphore = @as(c.PFN_vkDestroySemaphore, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroySemaphore"))) orelse return error.FunctionNotFound;
+    vkDestroyFence = @as(c.PFN_vkDestroyFence, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyFence"))) orelse return error.FunctionNotFound;
+    vkDestroyFramebuffer = @as(c.PFN_vkDestroyFramebuffer, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyFramebuffer"))) orelse return error.FunctionNotFound;
+    vkDestroyBuffer = @as(c.PFN_vkDestroyBuffer, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyBuffer"))) orelse return error.FunctionNotFound;
+    vkDestroyDescriptorSetLayout = @as(c.PFN_vkDestroyDescriptorSetLayout, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyDescriptorSetLayout"))) orelse return error.FunctionNotFound;
+    vkDestroyDescriptorPool = @as(c.PFN_vkDestroyDescriptorPool, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyDescriptorPool"))) orelse return error.FunctionNotFound;
+    vkBeginCommandBuffer = @as(c.PFN_vkBeginCommandBuffer, @ptrCast(vkGetDeviceProcAddr(device, "vkBeginCommandBuffer"))) orelse return error.FunctionNotFound;
+    vkCmdBeginRenderPass = @as(c.PFN_vkCmdBeginRenderPass, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdBeginRenderPass"))) orelse return error.FunctionNotFound;
+    vkCmdBindPipeline = @as(c.PFN_vkCmdBindPipeline, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdBindPipeline"))) orelse return error.FunctionNotFound;
+    vkCmdBindVertexBuffers = @as(c.PFN_vkCmdBindVertexBuffers, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdBindVertexBuffers"))) orelse return error.FunctionNotFound;
+    vkCmdBindIndexBuffer = @as(c.PFN_vkCmdBindIndexBuffer, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdBindIndexBuffer"))) orelse return error.FunctionNotFound;
+    vkCmdSetViewport = @as(c.PFN_vkCmdSetViewport, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdSetViewport"))) orelse return error.FunctionNotFound;
+    vkCmdSetScissor = @as(c.PFN_vkCmdSetScissor, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdSetScissor"))) orelse return error.FunctionNotFound;
+    vkCmdDraw = @as(c.PFN_vkCmdDraw, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdDraw"))) orelse return error.FunctionNotFound;
+    vkCmdDrawIndexed = @as(c.PFN_vkCmdDrawIndexed, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdDrawIndexed"))) orelse return error.FunctionNotFound;
+    vkCmdCopyBuffer = @as(c.PFN_vkCmdCopyBuffer, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdCopyBuffer"))) orelse return error.FunctionNotFound;
+    vkCmdPushConstants = @as(c.PFN_vkCmdPushConstants, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdPushConstants"))) orelse return error.FunctionNotFound;
+    vkUpdateDescriptorSets = @as(c.PFN_vkUpdateDescriptorSets, @ptrCast(vkGetDeviceProcAddr(device, "vkUpdateDescriptorSets"))) orelse return error.FunctionNotFound;
+    vkCmdBindDescriptorSets = @as(c.PFN_vkCmdBindDescriptorSets, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdBindDescriptorSets"))) orelse return error.FunctionNotFound;
+    vkCmdEndRenderPass = @as(c.PFN_vkCmdEndRenderPass, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdEndRenderPass"))) orelse return error.FunctionNotFound;
+    vkEndCommandBuffer = @as(c.PFN_vkEndCommandBuffer, @ptrCast(vkGetDeviceProcAddr(device, "vkEndCommandBuffer"))) orelse return error.FunctionNotFound;
+    vkResetCommandBuffer = @as(c.PFN_vkResetCommandBuffer, @ptrCast(vkGetDeviceProcAddr(device, "vkResetCommandBuffer"))) orelse return error.FunctionNotFound;
+    vkFreeMemory = @as(c.PFN_vkFreeMemory, @ptrCast(vkGetDeviceProcAddr(device, "vkFreeMemory"))) orelse return error.FunctionNotFound;
+    vkFreeCommandBuffers = @as(c.PFN_vkFreeCommandBuffers, @ptrCast(vkGetDeviceProcAddr(device, "vkFreeCommandBuffers"))) orelse return error.FunctionNotFound;
+    vkFreeDescriptorSets = @as(c.PFN_vkFreeDescriptorSets, @ptrCast(vkGetDeviceProcAddr(device, "vkFreeDescriptorSets"))) orelse return error.FunctionNotFound;
+    vkMapMemory = @as(c.PFN_vkMapMemory, @ptrCast(vkGetDeviceProcAddr(device, "vkMapMemory"))) orelse return error.FunctionNotFound;
+    vkUnmapMemory = @as(c.PFN_vkUnmapMemory, @ptrCast(vkGetDeviceProcAddr(device, "vkUnmapMemory"))) orelse return error.FunctionNotFound;
+    vkDestroyDevice = @as(c.PFN_vkDestroyDevice, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyDevice"))) orelse return error.FunctionNotFound;
+}
+
+var vkGetDeviceProcAddr: *const fn (c.VkDevice, ?[*:0]const u8) callconv(.C) c.PFN_vkVoidFunction = undefined;
+var vkCreateDevice: *const fn (c.VkPhysicalDevice, *const c.VkDeviceCreateInfo, ?*const c.VkAllocationCallbacks, ?*c.VkDevice) callconv(.C) i32 = undefined;
+var vkEnumeratePhysicalDevices: *const fn (c.VkInstance, *u32, ?[*]c.VkPhysicalDevice) callconv(.C) i32 = undefined;
+var vkEnumerateDeviceExtensionProperties: *const fn (c.VkPhysicalDevice, ?[*]const u8, *u32, ?[*]c.VkExtensionProperties) callconv(.C) i32 = undefined;
+var vkGetPhysicalDeviceProperties: *const fn (c.VkPhysicalDevice, ?*c.VkPhysicalDeviceProperties) callconv(.C) void = undefined;
+var vkGetPhysicalDeviceFeatures: *const fn (c.VkPhysicalDevice, ?*c.VkPhysicalDeviceFeatures) callconv(.C) void = undefined;
+var vkGetPhysicalDeviceSurfaceFormatsKHR: *const fn (c.VkPhysicalDevice, c.VkSurfaceKHR, *u32, ?[*]c.VkSurfaceFormatKHR) callconv(.C) i32 = undefined;
+var vkGetPhysicalDeviceSurfacePresentModesKHR: *const fn (c.VkPhysicalDevice, c.VkSurfaceKHR, *u32, ?[*]c.VkPresentModeKHR) callconv(.C) i32 = undefined;
+var vkGetPhysicalDeviceQueueFamilyProperties: *const fn (c.VkPhysicalDevice, *u32, ?[*]c.VkQueueFamilyProperties) callconv(.C) void = undefined;
+var vkGetPhysicalDeviceSurfaceCapabilitiesKHR: *const fn (c.VkPhysicalDevice, c.VkSurfaceKHR, *c.VkSurfaceCapabilitiesKHR) callconv(.C) i32 = undefined;
+var vkGetPhysicalDeviceSurfaceSupportKHR: *const fn (c.VkPhysicalDevice, u32, c.VkSurfaceKHR, *u32) callconv(.C) i32 = undefined;
+var vkGetPhysicalDeviceMemoryProperties: *const fn (c.VkPhysicalDevice, *c.VkPhysicalDeviceMemoryProperties) callconv(.C) void = undefined;
+var vkGetPhysicalDeviceFormatProperties: *const fn (c.VkPhysicalDevice, c.VkFormat, *c.VkFormatProperties) callconv(.C) void = undefined;
+var vkDestroySurfaceKHR: *const fn (c.VkInstance, c.VkSurfaceKHR, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkDestroyInstance: *const fn (c.VkInstance, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+
+var vkGetDeviceQueue: *const fn (c.VkDevice, u32, u32, *c.VkQueue) callconv(.C) void = undefined;
+
+var vkAllocateCommandBuffers: *const fn (c.VkDevice, *const c.VkCommandBufferAllocateInfo, *c.VkCommandBuffer) callconv(.C) i32 = undefined;
+var vkAllocateMemory: *const fn (c.VkDevice, *const c.VkMemoryAllocateInfo, ?*const c.VkAllocationCallbacks, *c.VkDeviceMemory) callconv(.C) i32 = undefined;
+var vkAllocateDescriptorSets: *const fn (c.VkDevice, *const c.VkDescriptorSetAllocateInfo, *c.VkDescriptorSet) callconv(.C) i32 = undefined;
+var vkQueueSubmit: *const fn (c.VkQueue, u32, *const c.VkSubmitInfo, c.VkFence) callconv(.C) i32 = undefined;
+var vkQueuePresentKHR: *const fn (c.VkQueue, *const c.VkPresentInfoKHR) callconv(.C) i32 = undefined;
+var vkQueueWaitIdle: *const fn (c.VkQueue) callconv(.C) i32 = undefined;
+var vkGetImageMemoryRequirements: *const fn (c.VkDevice, c.VkImage, *c.VkMemoryRequirements) callconv(.C) void = undefined;
+var vkGetSwapchainImagesKHR: *const fn (c.VkDevice, c.VkSwapchainKHR, *u32, ?[*]c.VkImage) callconv(.C) i32 = undefined;
+var vkGetBufferMemoryRequirements: *const fn (c.VkDevice, c.VkBuffer, *c.VkMemoryRequirements) callconv(.C) void = undefined;
+var vkBindBufferMemory: *const fn (c.VkDevice, c.VkBuffer, c.VkDeviceMemory, u64) callconv(.C) i32 = undefined;
+var vkBindImageMemory: *const fn (c.VkDevice, c.VkImage, c.VkDeviceMemory, u64) callconv(.C) i32 = undefined;
+var vkAcquireNextImageKHR: *const fn (c.VkDevice, c.VkSwapchainKHR, u64, c.VkSemaphore, c.VkFence, *u32) callconv(.C) i32 = undefined;
+var vkWaitForFences : *const fn (c.VkDevice, u32, *const c.VkFence, u32, u64) callconv(.C) i32 = undefined;
+var vkResetFences: *const fn (c.VkDevice, u32, *const c.VkFence) callconv(.C) i32 = undefined;
+var vkCreateSwapchainKHR: *const fn (c.VkDevice, *const c.VkSwapchainCreateInfoKHR, ?*const c.VkAllocationCallbacks, *c.VkSwapchainKHR) callconv(.C) i32 = undefined;
+var vkCreateImage: *const fn (c.VkDevice, *const c.VkImageCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkImage) callconv(.C) i32 = undefined;
+var vkCreateShaderModule: *const fn (c.VkDevice, *const c.VkShaderModuleCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkShaderModule) callconv(.C) i32 = undefined;
+var vkCreatePipelineLayout: *const fn (c.VkDevice, *const c.VkPipelineLayoutCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkPipelineLayout) callconv(.C) i32 = undefined;
+var vkCreateImageView: *const fn (c.VkDevice, *const c.VkImageViewCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkImageView) callconv(.C) i32 = undefined;
+var vkCreateRenderPass: *const fn (c.VkDevice, *const c.VkRenderPassCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkRenderPass) callconv(.C) i32 = undefined;
+var vkCreateGraphicsPipelines: *const fn (c.VkDevice, c.VkPipelineCache, u32, *const c.VkGraphicsPipelineCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkPipeline) callconv(.C) i32 = undefined;
+var vkCreateFramebuffer: *const fn (c.VkDevice, *const c.VkFramebufferCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkFramebuffer) callconv(.C) i32 = undefined;
+var vkCreateCommandPool: *const fn (c.VkDevice, *const c.VkCommandPoolCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkCommandPool) callconv(.C) i32 = undefined;
+var vkCreateSemaphore: *const fn (c.VkDevice, *const c.VkSemaphoreCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkSemaphore) callconv(.C) i32 = undefined;
+var vkCreateFence: *const fn (c.VkDevice, *const c.VkFenceCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkFence) callconv(.C) i32 = undefined;
+var vkCreateBuffer: *const fn (c.VkDevice, *const c.VkBufferCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkBuffer) callconv(.C) i32 = undefined;
+var vkCreateDescriptorSetLayout: *const fn (c.VkDevice, *const c.VkDescriptorSetLayoutCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkDescriptorSetLayout) callconv(.C) i32 = undefined;
+var vkCreateDescriptorPool: *const fn (c.VkDevice, *const c.VkDescriptorPoolCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkDescriptorPool) callconv(.C) i32 = undefined;
+var vkDestroyCommandPool: *const fn (c.VkDevice, c.VkCommandPool, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkDestroyPipeline: *const fn (c.VkDevice, c.VkPipeline, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkDestroyPipelineLayout: *const fn (c.VkDevice, c.VkPipelineLayout, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkDestroyRenderPass: *const fn (c.VkDevice, c.VkRenderPass, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkDestroyImageView: *const fn (c.VkDevice, c.VkImageView, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkDestroySwapchainKHR: *const fn (c.VkDevice, c.VkSwapchainKHR, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkDestroyShaderModule: *const fn (c.VkDevice, c.VkShaderModule, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkDestroySemaphore: *const fn (c.VkDevice, c.VkSemaphore, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkDestroyFence: *const fn (c.VkDevice, c.VkFence, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkDestroyFramebuffer: *const fn (c.VkDevice, c.VkFramebuffer, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkDestroyBuffer: *const fn (c.VkDevice, c.VkBuffer, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkDestroyDescriptorSetLayout: *const fn (c.VkDevice, c.VkDescriptorSetLayout, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkDestroyDescriptorPool: *const fn (c.VkDevice, c.VkDescriptorPool, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkBeginCommandBuffer: *const fn (c.VkCommandBuffer, *const c.VkCommandBufferBeginInfo) callconv(.C) i32 = undefined;
+var vkCmdBeginRenderPass: *const fn (c.VkCommandBuffer, *const c.VkRenderPassBeginInfo, c.VkSubpassContents) callconv(.C) void = undefined;
+var vkCmdBindPipeline: *const fn (c.VkCommandBuffer, c.VkPipelineBindPoint, c.VkPipeline) callconv(.C) void = undefined;
+var vkCmdBindVertexBuffers: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkBuffer, *const u64) callconv(.C) void = undefined;
+var vkCmdBindIndexBuffer: *const fn (c.VkCommandBuffer, c.VkBuffer, u64, c.VkIndexType) callconv(.C) void = undefined;
+var vkCmdSetViewport: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkViewport) callconv(.C) void = undefined;
+var vkCmdSetScissor: *const fn (c.VkCommandBuffer, u32, u32, *const c.VkRect2D ) callconv(.C) void = undefined;
+var vkCmdCopyBuffer: *const fn (c.VkCommandBuffer, c.VkBuffer, c.VkBuffer, u32, *const c.VkBufferCopy) callconv(.C) void = undefined;
+var vkCmdDraw: *const fn (c.VkCommandBuffer, u32, u32, u32, u32) callconv(.C) void = undefined;
+var vkCmdDrawIndexed: *const fn (c.VkCommandBuffer, u32, u32, u32, i32, u32) callconv(.C) void = undefined;
+var vkCmdPushConstants: *const fn (c.VkCommandBuffer, c.VkPipelineLayout, c.VkShaderStageFlags, u32, u32, ?*const anyopaque) callconv(.C) void = undefined;
+var vkUpdateDescriptorSets: *const fn (c.VkDevice, u32, *const c.VkWriteDescriptorSet, u32, ?*const c.VkCopyDescriptorSet) callconv(.C) void = undefined;
+var vkCmdBindDescriptorSets: *const fn (c.VkCommandBuffer, c.VkPipelineBindPoint, c.VkPipelineLayout, u32, u32, [*]const c.VkDescriptorSet, u32, ?*const u32) callconv(.C) void = undefined;
+var vkCmdEndRenderPass: *const fn (c.VkCommandBuffer) callconv(.C) void = undefined;
+var vkEndCommandBuffer: *const fn (c.VkCommandBuffer) callconv(.C) i32 = undefined;
+var vkResetCommandBuffer: *const fn (c.VkCommandBuffer, c.VkCommandBufferResetFlags) callconv(.C) i32 = undefined;
+var vkFreeMemory: *const fn (c.VkDevice, c.VkDeviceMemory, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkFreeCommandBuffers: *const fn (c.VkDevice, c.VkCommandPool, u32, *const c.VkCommandBuffer) callconv (.C) void = undefined;
+var vkFreeDescriptorSets: *const fn (c.VkDevice, c.VkDescriptorPool, u32, *const c.VkDescriptorSet) callconv (.C) i32 = undefined;
+var vkMapMemory: *const fn (c.VkDevice, c.VkDeviceMemory, u64, u64, u32, *?*anyopaque) callconv(.C) i32 = undefined;
+var vkUnmapMemory: *const fn (c.VkDevice, c.VkDeviceMemory) callconv(.C) void = undefined;
+var vkDestroyDevice: *const fn (c.VkDevice, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;

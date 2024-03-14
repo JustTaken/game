@@ -1,3 +1,4 @@
+var sucumba: i32 = null;
 const std = @import("std");
 const _platform = @import("platform.zig");
 const _vulkan = @import("vulkan.zig");
