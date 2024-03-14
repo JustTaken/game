@@ -4,8 +4,6 @@ const _game = @import("game.zig");
 const _event = @import("event.zig");
 const _config = @import("util/configuration.zig");
 const _backend = @import("renderer/backend.zig");
-const _font = @import("asset/font.zig");
-const _vulkan =  @import("renderer/vulkan.zig");
 
 const Game = _game.Game;
 const Backend = _backend.Backend;

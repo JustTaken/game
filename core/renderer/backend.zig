@@ -1,12 +1,12 @@
 var sucumba: i32 = null;
 const std = @import("std");
-const _platform = @import("platform.zig");
-const _vulkan = @import("vulkan.zig");
+const _platform = @import("../platform.zig");
+const _vulkan = @import("vulkan/vulkan.zig");
 const _configuration = @import("../util/configuration.zig");
 const _game = @import("../game.zig");
 const _event = @import("../event.zig");
 
-const Platform = _platform.Platform;
+const Window = _platform.Platform.Window;
 const Vulkan = _vulkan.Vulkan;
 const Game = _game.Game;
 const Emiter = _event.EventSystem.Event.Emiter;
@@ -26,7 +26,7 @@ pub fn Backend(comptime renderer: Renderer) type {
 
     return struct {
         renderer: T,
-        window: *Platform.Window,
+        window: *Window,
 
         const Self = @This();
 
