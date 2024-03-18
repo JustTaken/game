@@ -161,7 +161,7 @@ pub const GraphicsPipeline = struct {
     };
 
     pub fn new(device: Device, instance: Instance, window: Window, allocator: Allocator) !GraphicsPipeline {
-        const vert_code = Io.read_file("assets/vert.spv", allocator) catch |e| {
+        const vert_code = Io.read_file("assets//vert.spv", allocator) catch |e| {
             logger.log(.Error, "Could not read vertex shader byte code", .{});
 
             return e;
@@ -239,16 +239,16 @@ pub const GraphicsPipeline = struct {
             .pViewports = &.{
                 .x = 0.0,
                 .y = 0.0,
-                .width = @as(f32, @floatFromInt(window.extent.width)),
-                .height = @as(f32, @floatFromInt(window.extent.height)),
+                .width = @as(f32, @floatFromInt(window.width)),
+                .height = @as(f32, @floatFromInt(window.height)),
                 .minDepth = 0.0,
                 .maxDepth = 1.0,
             },
             .pScissors = &.{
                 .offset = .{.x = 0, .y = 0},
                 .extent = .{
-                    .width = window.extent.width,
-                    .height = window.extent.height,
+                    .width = window.width,
+                    .height = window.height,
                 }
             },
         };

@@ -409,16 +409,16 @@ pub const Data = struct {
                 }
 
                 switch (update.data) {
-                        .model => |model| self.models[k].items.items[object.id].mapped.model = model,
-                        .color => |color| self.models[k].items.items[object.id].mapped.color = color,
-                        .new => {
-                            game.object_handle.objects.items[update.id].id = try self.models[k].add_item(device, memory_properties, .{
-                                .model = object.model,
-                                .color = object.color,
-                            }, descriptor, allocator);
+                    .model => |model| self.models[k].items.items[object.id].mapped.model = model,
+                    .color => |color| self.models[k].items.items[object.id].mapped.color = color,
+                    .new => {
+                        game.object_handle.objects.items[update.id].id = try self.models[k].add_item(device, memory_properties, .{
+                            .model = object.model,
+                            .color = object.color,
+                        }, descriptor, allocator);
 
-                            command_pool.invalidate_all();
-                        },
+                        command_pool.invalidate_all();
+                    },
                 }
             }
 

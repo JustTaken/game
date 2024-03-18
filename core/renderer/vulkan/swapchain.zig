@@ -37,6 +37,7 @@ pub const Swapchain = struct {
     depth_image_view: c.VkImageView,
     depth_image_memory: c.VkDeviceMemory,
     arena: std.heap.ArenaAllocator,
+    force_redraw: bool = false,
 
     pub fn new(device: Device, opt_swapchain: ?Swapchain, instance: Instance, window: Window, graphics_pipeline: GraphicsPipeline) !Swapchain {
         var swapchain = blk: {
@@ -45,7 +46,10 @@ pub const Swapchain = struct {
             } else {
                 break :blk Swapchain {
                     .handle = null,
-                    .extent = window.extent,
+                    .extent = .{
+                        .width = window.width,
+                        .height = window.height,
+                    },
                     .image_views = undefined,
                     .framebuffers = undefined,
                     .depth_image_view = undefined,
@@ -68,8 +72,8 @@ pub const Swapchain = struct {
                 break :blk capabilities.currentExtent;
             } else {
                 break :blk .{
-                    .width = std.math.clamp(window.extent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
-                    .height = std.math.clamp(window.extent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height),
+                    .width = std.math.clamp(window.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
+                    .height = std.math.clamp(window.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height),
                 };
             }
         };
@@ -251,37 +255,16 @@ pub const Swapchain = struct {
         return swapchain;
     }
 
-    fn recreate(
+    pub fn recreate(
         self: *Swapchain,
         device: Device,
         instance: Instance,
         pipeline: GraphicsPipeline,
-        window: *Window,
+        window: Window,
         command_pool: *CommandPool,
-        sync: *Sync
     ) !void {
-        device.queue_wait_idle(device.queues[0].handle) catch {
-            logger.log(.Error, "device did not wait for present queue", .{});
-
-            return;
-        };
-
         while (true) {
-            const extent = Platform.get_framebuffer_size(window.handle);
-            sync.nanos_per_frame = Platform.get_nanos_per_frame(window.handle) catch blk: {
-                break :blk Sync.default;
-            };
-
-            if (extent.width == 0 or extent.height == 0) {
-                Platform.wait_events();
-            } else if (extent.width != window.extent.width or extent.height != window.extent.height) {
-                window.extent.width = extent.width;
-                window.extent.height = extent.height;
-                window.emiter.value = .{
-                    .u32 = .{ extent.width, extent.height },
-                };
-
-                window.emiter.changed = true;
+            if (window.width == 0 or window.height == 0) {
             } else {
                 break;
             }
@@ -289,7 +272,7 @@ pub const Swapchain = struct {
             std.time.sleep(60 * Sync.default);
         }
 
-        self.* = try Swapchain.new(device, self.*, instance, window.*, pipeline);
+        self.* = try Swapchain.new(device, self.*, instance, window, pipeline);
         command_pool.invalidate_all();
     }
 
@@ -305,17 +288,21 @@ pub const Swapchain = struct {
         window: *Window,
         command_pool: *CommandPool,
         data: Data,
-        sync: *Sync
-    ) !void {
-        self.draw_frame(device, pipeline, command_pool, data, sync) catch |e| {
-            if(e == Result.SuboptimalKhr or e == Result.OutOfDateKhr) {
-                try self.recreate(device, instance, pipeline, window, command_pool, sync);
+        sync: *Sync,
+    ) !bool {
+        _ = window;
+        _ = instance;
 
-                logger.log(.Debug, "Swapchain recreated", .{});
+        self.draw_frame(device, pipeline, command_pool, data, sync.*) catch |e| {
+            if(e == Result.SuboptimalKhr or e == Result.OutOfDateKhr) {
+
+                return true;
             } else {
                 return e;
             }
         };
+
+        return false;
     }
 
     fn draw_frame(
@@ -324,9 +311,9 @@ pub const Swapchain = struct {
         pipeline: GraphicsPipeline,
         command_pool: *CommandPool,
         data: Data,
-        sync: *Sync,
+        sync: Sync,
     ) !void {
-        const image_index = try self.acquire_next_image(device, sync.*);
+        const image_index = try self.acquire_next_image(device, sync);
 
         if (!(command_pool.buffers.items[image_index].is_valid)) {
             command_pool.buffers.items[image_index].record(device, pipeline, self, data) catch {
@@ -344,8 +331,6 @@ pub const Swapchain = struct {
             .signalSemaphoreCount = 1,
             .pSignalSemaphores = &sync.render_finished,
         }, sync.in_flight_fence);
-
-        sync.changed = true;
 
         try device.queue_present(.{
             .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,

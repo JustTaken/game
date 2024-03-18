@@ -26,13 +26,9 @@ pub const Sync = struct {
 
     pub const default: u32 = @intCast(1000000000 / 60);
 
-    pub fn new(device: Device, window: Window) !Sync {
+    pub fn new(device: Device) !Sync {
+        const nanos_per_frame = default;
         const timer = try Timer.start();
-
-        const nanos_per_frame = Platform.get_nanos_per_frame(window.handle) catch blk: {
-            logger.log(.Error, "Could not get the especific frame rate of window, using 60 fps as default", .{});
-            break :blk default;
-        };
 
         const image = try device.create_semaphore(.{
             .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
@@ -61,6 +57,7 @@ pub const Sync = struct {
             device.wait_for_fences(&self.in_flight_fence) catch {
                 logger.log(.Error, "CPU did not wait for draw call", .{});
             };
+
             device.reset_fences(&self.in_flight_fence) catch {
                 logger.log(.Error, "Failed to reset CPU fence", .{});
             };

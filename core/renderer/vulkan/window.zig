@@ -1,3 +1,4 @@
+const std = @import("std");
 const _config = @import("../../util/configuration.zig");
 const _platform = @import("../../platform/platform.zig");
 const _event = @import("../../event.zig");
@@ -7,47 +8,50 @@ const Instance = _instance.Instance;
 
 const Platform = _platform.Platform;
 const Emiter = _event.EventSystem.Event.Emiter;
+const Listener = _event.EventSystem.Event.Listener;
+const Argument = _event.EventSystem.Argument;
 
 const c = _platform.c;
 const configuration = _config.Configuration;
 const logger = configuration.logger;
 
 pub const Window = struct {
-    handle: *Platform.Window,
     surface: c.VkSurfaceKHR,
-    extent: c.VkExtent2D,
-    emiter: *Emiter = undefined,
+    resized: bool = false,
+    width: u32,
+    height: u32,
 
-    pub fn new(instance: Instance, extent: ?c.VkExtent2D) !Window {
-        const handle = Platform.create_window(extent, &configuration.application_name[0]) catch |e| {
-            logger.log(.Error, "Platform failed to create window handle", .{});
-
-            return e;
-        };
-
-        const surface = Platform.create_window_surface(instance.handle, handle, null) catch |e| {
-            logger.log(.Error, "Failed to create window surface", .{});
-
-            return e;
-        };
-
-        const window_extent = extent orelse blk: {
-            break :blk Platform.get_framebuffer_size(handle);
-        };
-
+    pub fn new(surface: c.VkSurfaceKHR) !Window {
         return .{
-            .handle = handle,
+            .width = configuration.default_width,
+            .height = configuration.default_height,
             .surface = surface,
-            .extent = window_extent
         };
     }
 
-    pub fn register_emiter(self: *Window, emiter: *Emiter) void {
-        self.emiter = emiter;
+    pub fn listener(self: *Window) Listener {
+        return .{
+            .ptr = self,
+            .listen_fn = listen,
+        };
     }
+
+    pub fn listen(ptr: *anyopaque, argument: Argument) bool {
+        const self: *Window = @alignCast(@ptrCast(ptr));
+        const new_width = argument.u32[0];
+        const new_height = argument.u32[1];
+
+        if (new_width != self.width or new_height != self.height) {
+            self.width = new_width;
+            self.height = new_height;
+            self.resized = true;
+        }
+
+        return false;
+    }
+
 
     pub fn destroy(self: Window, instance: Instance) void {
         instance.destroy_surface(self.surface);
-        Platform.destroy_window(self.handle);
     }
 };

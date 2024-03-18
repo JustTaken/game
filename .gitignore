@@ -4,4 +4,5 @@ assets/frag.spv
 assets/vert.spv
 .direnv/
 .envrc
-TODO.org
+PROJ.org
+outputs/

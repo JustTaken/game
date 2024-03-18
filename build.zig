@@ -5,8 +5,17 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{
         .preferred_optimize_mode = .ReleaseSmall
     });
-    const core = b.addModule("core", .{ .root_source_file = .{ .path = "core/lib.zig" } });
-    const generator = b.addModule("generator", .{ .root_source_file = .{ .path = "generator/lib.zig" } });
+    const core = b.addModule("core", .{
+        .root_source_file = .{ .path = "core/lib.zig" },
+        .target = target
+    });
+
+    core.addCSourceFile(.{
+        .file = .{ .path = "assets/include/xdg-shell/xdg-shell.c" },
+    });
+
+    core.addIncludePath(.{ .path = "assets/include" });
+    core.linkSystemLibrary("wayland-client", .{});
 
     const exe = b.addExecutable(.{
         .name = "engine",
@@ -21,10 +30,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    generator.addImport("core", core);
-
     exe.linkLibC();
-    exe.linkSystemLibrary("glfw");
     exe.root_module.addImport("core", core);
 
     b.installArtifact(exe);
@@ -36,7 +42,7 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     unit_tests.root_module.addImport("core", core);
-    unit_tests.root_module.addImport("generator", generator);
+    unit_tests.linkLibC();
 
     const run_test = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run unit tests");

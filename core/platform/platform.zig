@@ -1,149 +1,175 @@
 const std = @import("std");
 
 const _config = @import("../util/configuration.zig");
+const _wayland = @import("wayland.zig");
+const _glfw = @import("glfw.zig");
+const _event = @import("../event.zig");
+
+const Emiter = _event.EventSystem.Event.Emiter;
 
 pub const c = @cImport({
-    // @cDefine("VK_USE_PLATFORM_WAYLAND_KHR", "");
+    @cDefine("VK_USE_PLATFORM_WAYLAND_KHR", "");
     @cDefine("VK_NO_PROTOTYPES", "");
     @cInclude("vulkan/vulkan.h");
-    @cInclude("GLFW/glfw3.h");
-    // @cInclude("wayland-client.h");
+    // @cInclude("GLFW/glfw3.h");
+    @cInclude("wayland-client.h");
+    @cInclude("xdg-shell/xdg-shell.h");
+    // @cInclude("xdg-shell.c");
     @cInclude("dlfcn.h");
 });
 
-const configuration = _config.Configuration;
-const logger = configuration.logger;
+const Wayland = _wayland.Wayland;
+const Glfw = _glfw.Glfw;
 
-pub const Platform = struct {
-    pub const Window = c.GLFWwindow;
-    pub const Press = c.GLFW_PRESS;
+const logger = _config.Configuration.logger;
 
-    pub const Right = c.GLFW_KEY_RIGHT;
-    pub const Left = c.GLFW_KEY_LEFT;
-    pub const Down = c.GLFW_KEY_DOWN;
-    pub const Up = c.GLFW_KEY_UP;
-    pub const W = c.GLFW_KEY_W;
-    pub const A = c.GLFW_KEY_A;
-    pub const S = c.GLFW_KEY_S;
-    pub const D = c.GLFW_KEY_D;
-    pub const C = c.GLFW_KEY_C;
-    pub const Control = c.GLFW_KEY_LEFT_CONTROL;
-    pub const Space = c.GLFW_KEY_SPACE;
+pub fn Platform(comptime compositor: Compositor) type {
+    return struct {
+        compositor: T,
 
-    pub fn init() !void {
-        if (c.glfwInit() != c.GLFW_TRUE) {
-            logger.log(.Error, "Glfw failed to initialize", .{});
 
-            return error.GlfwInit;
+        const Self =  @This();
+        pub const Extensions = T.Extensions;
+        pub const T = Compositor.get(compositor);
+
+        pub fn init() !Self {
+            return .{
+                .compositor = try T.init(),
+            };
         }
 
-        c.glfwWindowHint(c.GLFW_CLIENT_API, c.GLFW_NO_API);
-    }
+        pub fn commit(self: Self) void {
+            self.compositor.commit();
+        }
 
-    pub fn get_instance_function() !vkCreateInstance {
-        const vulkan: *anyopaque = c.dlopen("libvulkan.so.1", c.RTLD_LAZY) orelse return error.LibVulkanNotFound;
-        return @as(c.PFN_vkCreateInstance, @ptrCast(c.dlsym(vulkan, "vkCreateInstance"))) orelse return error.vkCreateInstanceNotFound;
-    }
+        pub fn update_events(self: Self) !void {
+            try self.compositor.update_events();
+        }
 
-    pub fn get_instance_procaddr(instance: c.VkInstance) !vkGetInstanceProcAddr {
-        return @as(c.PFN_vkGetInstanceProcAddr, @ptrCast(c.glfwGetInstanceProcAddress(instance, "vkGetInstanceProcAddr"))) orelse return error.FunctionNotFound;
-    }
+        pub fn register_click_emiter(self: Self, emiter: *Emiter) void {
+            self.compositor.register_click_emiter(emiter);
+        }
 
-    pub fn set_cursor_position(window: ?*Window, x: f64, y: f64) void {
-        c.glfwSetCursorPos(window, x, y);
-    }
+        pub fn register_mouse_emiter(self: Self, emiter: *Emiter) void {
+            self.compositor.register_mouse_emiter(emiter);
+        }
 
-    pub fn cursor_position_callback(window: *Window, func: ?*const fn (?*Window, f64, f64) callconv (.C) void) void {
-        c.glfwSetInputMode(window, c.GLFW_CURSOR, c.GLFW_CURSOR_DISABLED);
-        _ = c.glfwSetCursorPosCallback(window, func);
-    }
+        pub fn register_window_resize_emiter(self: Self, emiter: *Emiter) void {
+            self.compositor.register_window_resize_emiter(emiter);
+        }
 
-    pub fn create_window(extent: ?c.VkExtent2D, name: [*c]const u8) !*Window {
-        c.glfwWindowHint(c.GLFW_CLIENT_API, c.GLFW_NO_API);
-        const e = blk: {
-            if (extent) |e| {
-                break :blk e;
-            } else {
-                break :blk c.VkExtent2D {
-                    .width = configuration.default_width,
-                    .height = configuration.default_height,
-                };
-            }
+        pub fn register_keyboard_emiter(self: Self, emiter: *Emiter) void {
+            self.compositor.register_keyboard_emiter(emiter);
+        }
+
+
+        pub fn create_surface(self: Self, instance: c.VkInstance) !c.VkSurfaceKHR {
+            return try self.compositor.create_surface(instance);
+        }
+
+        pub fn deinit(self: Self) void {
+            self.compositor.deinit();
+        }
+    };
+}
+
+pub const Compositor = enum {
+    Wayland,
+    Glfw,
+
+    fn get(comptime compositor: Compositor) type {
+        return switch (compositor) {
+            .Wayland => Wayland,
+            .Glfw => Glfw,
         };
-
-        return c.glfwCreateWindow(@intCast(e.width), @intCast(e.height), name, c.glfwGetPrimaryMonitor(), null) orelse return error.WindowInit;
-    }
-
-    pub fn destroy_window(window: *Window) void {
-        c.glfwDestroyWindow(window);
-    }
-
-    pub fn create_window_surface(instance: c.VkInstance, window: *Window, callback: ?*c.VkAllocationCallbacks) !c.VkSurfaceKHR {
-        var surface: c.VkSurfaceKHR = undefined;
-        if (c.glfwCreateWindowSurface(instance, window, callback, &surface) != c.VK_SUCCESS) return error.SurfaceEerror;
-
-        return surface;
-    }
-
-    pub fn window_should_close(window: *Window) bool {
-        return c.glfwWindowShouldClose(window) != 0;
-    }
-
-    pub fn get_framebuffer_size(window: *Window) c.VkExtent2D {
-        var width: i32 = undefined;
-        var height: i32 = undefined;
-
-        c.glfwGetFramebufferSize(window, &width, &height);
-
-        return .{
-            .width = @as(u32, @intCast(width)),
-            .height = @as(u32, @intCast(height)),
-        };
-    }
-
-    pub fn get_nanos_per_frame(window: *Window) !u32 {
-        if (c.glfwGetWindowMonitor(window)) |monitor| {
-            const video_mode = c.glfwGetVideoMode(monitor);
-            const rate: u32 = @intCast(video_mode.*.refreshRate);
-
-            return 1000000000 / rate;
-        }
-
-        return error.NotFound;
-    }
-
-    pub fn get_required_instance_extensions(allocator: std.mem.Allocator) ![][*:0]const u8 {
-        var count: u32 = undefined;
-        const extensions_c = c.glfwGetRequiredInstanceExtensions(&count);
-        const extensions = try allocator.alloc([*:0]const u8, count);
-
-        for (0..count) |i| {
-            extensions[i] = extensions_c[i];
-        }
-
-        return extensions;
-    }
-
-    pub fn wait_events() void {
-        c.glfwWaitEvents();
-    }
-
-    pub fn get_key(window: *Window, key: i32) i32 {
-        return c.glfwGetKey(window, key);
-    }
-
-    pub fn get_time() f64 {
-        return c.glfwGetTime();
-    }
-
-    pub fn poll_events() void {
-        c.glfwPollEvents();
-    }
-
-    pub fn shutdown() void {
-        c.glfwTerminate();
     }
 };
 
+pub const KeyMap = enum(u8) {
+    Esc = 1,
+    One = 2,
+    Two = 3,
+    Three = 4,
+    Four = 5,
+    Five = 6,
+    Xis = 7,
+    Seven = 8,
+    Eight = 9,
+    Nine = 10,
+    Zero = 11,
+    Minus = 12,
+    Equal = 13,
+    Backspace = 14,
+    Tab = 15,
+    Q = 16,
+    W = 17,
+    E = 18,
+    R = 19,
+    T = 20,
+    Y = 21,
+    U = 22,
+    I = 23,
+    O = 24,
+    P = 25,
+    Agudo = 26,
+    SquareBracketsOpen = 27,
+    Enter = 28,
+    Control = 29,
+    A = 30,
+    S = 31,
+    D = 32,
+    F = 33,
+    G = 34,
+    H = 35,
+    J = 36,
+    K = 37,
+    L = 38,
+    Cecedilha = 39,
+    Negation = 40,
+    Quote = 41,
+    Shift = 42,
+    SquareBracketsClose = 43,
+    Z = 44,
+    X = 45,
+    C = 46,
+    V = 47,
+    B = 48,
+    N = 49,
+    M = 50,
+    Coulum = 51,
+    Dot = 52,
+    SemiCoulum = 53,
+    RShift = 54,
+    DontKnow = 55,
+    Alt = 56,
+    Space = 57,
+};
+
+pub fn get_instance_function() !vkCreateInstance {
+    if (vulkan) |_| {
+    } else {
+        vulkan = c.dlopen("libvulkan.so.1", c.RTLD_LAZY) orelse return error.LibVulkanNotFound;
+    }
+
+    return @as(c.PFN_vkCreateInstance, @ptrCast(c.dlsym(vulkan, "vkCreateInstance"))) orelse return error.vkCreateInstanceNotFound;
+}
+
+pub fn get_instance_procaddr(instance: c.VkInstance) !vkGetInstanceProcAddr {
+    if (vulkan) |_| {
+    } else {
+        vulkan = c.dlopen("libvulkan.so.1", c.RTLD_LAZY) orelse return error.LibVulkanNotFound;
+    }
+    GetInstanceProcAddr = @as(c.PFN_vkGetInstanceProcAddr, @ptrCast(c.dlsym(vulkan, "vkGetInstanceProcAddr"))) orelse return error.FunctionNotFound;
+    return @as(c.PFN_vkGetInstanceProcAddr, @ptrCast(GetInstanceProcAddr(instance, "vkGetInstanceProcAddr"))) orelse return error.FunctionNotFound;
+}
+
+pub fn get_device_procaddr(instance: c.VkInstance) !vkGetDeviceProcAddr {
+    return @as(c.PFN_vkGetDeviceProcAddr, @ptrCast(GetInstanceProcAddr(instance, "vkGetDeviceProcAddr"))) orelse return error.FunctionNotFound;
+}
+
+var GetInstanceProcAddr: vkGetInstanceProcAddr = undefined;
+var vulkan: ?*anyopaque = null;
+
 const vkCreateInstance = *const fn (?*const c.VkInstanceCreateInfo, ?*const c.VkAllocationCallbacks, ?*c.VkInstance) callconv(.C) i32;
 const vkGetInstanceProcAddr = *const fn (c.VkInstance, ?[*:0]const u8) callconv(.C) c.PFN_vkVoidFunction;
+const vkGetDeviceProcAddr =  *const fn (c.VkDevice, ?[*:0]const u8) callconv(.C) c.PFN_vkVoidFunction;

@@ -37,21 +37,25 @@ pub const Vulkan = struct {
     sync: Sync,
     data: Data,
 
-    pub fn new() !Vulkan {
+    pub fn new(comptime P: type, platform: P) !Vulkan {
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         const allocator = arena.allocator();
 
         defer { _ = arena.deinit(); }
 
-        try Platform.init();
-
-        const instance = Instance.new() catch |e| {
+        const instance = Instance.new(P) catch |e| {
             logger.log(.Error, "Failed to create instance", .{});
 
             return e;
         };
 
-        const window = Window.new(instance, .{.width = configuration.default_width, .height = configuration.default_height }) catch |e| {
+        const window = Window.new(
+            platform.create_surface(instance.handle) catch |e| {
+                logger.log(.Error, "Failed to create surface", .{});
+
+                return e;
+            }
+        ) catch |e| {
             logger.log(.Error, "Failed to create window", .{});
 
             return e;
@@ -75,7 +79,7 @@ pub const Vulkan = struct {
             return e;
         };
 
-        const sync = Sync.new(device, window) catch |e| {
+        const sync = Sync.new(device) catch |e| {
             logger.log(.Error, "Failed to create sync objects", .{});
 
             return e;
@@ -105,18 +109,58 @@ pub const Vulkan = struct {
         };
     }
 
-    pub fn draw(self: *Vulkan, game: *Game) !void {
+    pub fn clock(self: *Vulkan) void {
         self.sync.update(self.device);
+    }
 
-        if (game.object_handle.has_change() or game.camera.changed) {
-            self.data.register_changes(self.device, self.instance.get_physical_device_memory_properties(self.device.physical_device), &self.graphics_pipeline.descriptor, &self.command_pool, game) catch |e| {
+    pub fn draw(self: *Vulkan, game: *Game) !bool {
+        const scene_changed = game.object_handle.has_change() or game.camera.changed;
+
+        if (scene_changed) {
+            self.data.register_changes(
+                self.device,
+                self.instance.get_physical_device_memory_properties(self.device.physical_device),
+                &self.graphics_pipeline.descriptor,
+                &self.command_pool,
+                game
+            ) catch |e| {
                 logger.log(.Error, "Failed to register changes in frame", .{});
 
                 return e;
             };
 
-            try self.swapchain.draw_next_frame(self.device, self.instance, self.graphics_pipeline, &self.window, &self.command_pool, self.data, &self.sync);
         }
+
+        if (self.window.resized or scene_changed or self.swapchain.force_redraw) {
+            if (try self.swapchain.draw_next_frame(
+                self.device,
+                self.instance,
+                self.graphics_pipeline,
+                &self.window,
+                &self.command_pool,
+                self.data,
+                &self.sync
+            ) or self.window.resized
+            ) {
+                try self.swapchain.recreate(
+                    self.device,
+                    self.instance,
+                    self.graphics_pipeline,
+                    self.window,
+                    &self.command_pool
+                );
+
+                self.window.resized = false;
+                self.swapchain.force_redraw = true;
+            } else {
+                self.sync.changed = true;
+                self.swapchain.force_redraw = false;
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
     pub fn shutdown(self: *Vulkan) void {
@@ -128,7 +172,5 @@ pub const Vulkan = struct {
         self.device.destroy();
         self.window.destroy(self.instance);
         self.instance.destroy();
-
-        Platform.shutdown();
     }
 };

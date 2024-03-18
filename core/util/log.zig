@@ -32,9 +32,5 @@ pub const Log  = struct {
         defer std.debug.getStderrMutex().unlock();
         const stderr = std.io.getStdErr().writer();
         nosuspend stderr.print(prefix ++ format ++ "\n", args) catch return;
-
-        if (@intFromEnum(Log.Level.Fatal) == @intFromEnum(level)) {
-            std.process.exit(0);
-        }
     }
 };

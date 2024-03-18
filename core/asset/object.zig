@@ -19,9 +19,9 @@ pub const Object = struct {
 
         fn path(self: Type) []const u8 {
             return switch (self) {
-                .Cube => "assets/cube.obj",
-                .Cone => "assets/cone.obj",
-                .Plane => "assets/plane.obj",
+                .Cube => "assets/objects/cube.obj",
+                .Cone => "assets/objects/cone.obj",
+                .Plane => "assets/objects/plane.obj",
                 .None => "",
             };
         }

@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const _config = @import("util/configuration.zig");
-const _platform  = @import("renderer/platform.zig");
+const _platform  = @import("platform/platform.zig");
 const _game = @import("game.zig");
 const _collections = @import("util/collections.zig");
 const _backend = @import("renderer/backend.zig");
@@ -62,10 +62,8 @@ pub const EventSystem = struct {
 
         const Type = enum {
             KeyPress,
-            KeyRelease,
-            MouseRight,
             MouseWheel,
-            MouseLeft,
+            MouseClick,
             MouseMove,
             WindowResize,
 
@@ -108,23 +106,8 @@ pub const EventSystem = struct {
         u16: [4]u16,
         f16: [4]f16,
 
-        i8: [16]i8,
-        u8: [16]u8,
-    };
-
-    const Press = Platform.Press;
-    const keys = [_]i32 {
-        Platform.Right,
-        Platform.Left,
-        Platform.Down,
-        Platform.Up,
-        Platform.Space,
-        Platform.Control,
-        Platform.W,
-        Platform.A,
-        Platform.S,
-        Platform.D,
-        Platform.C,
+        i8: [8]i8,
+        u8: [8]u8,
     };
 
     pub fn new() !EventSystem {
@@ -153,32 +136,6 @@ pub const EventSystem = struct {
         return try self.events[@intFromEnum(code)].new_emiter();
     }
 
-    pub fn init(self: *EventSystem, window: *Platform.Window, game: *Game, comptime renderer: Renderer, backend: *Backend(renderer)) void {
-        self.add_listener(game.camera.handler_resize(), .WindowResize) catch {
-            logger.log(.Fatal,"Could not register camera in resize window event system", .{});
-        };
-
-        self.add_listener(game.camera.handler_keyboard(), .KeyPress) catch {
-            logger.log(.Fatal,"Could not register camera in keyboard event system", .{});
-        };
-
-        self.add_listener(game.camera.handler_mouse(), .MouseMove) catch {
-            logger.log(.Fatal,"Could not register camera in mouse event system", .{});
-        };
-
-        self.add_listener(game.object_handle.handler(), .KeyPress) catch {
-            logger.log(.Fatal,"Could not register object handle in keyboard event system", .{});
-        };
-
-        backend.register_window_emiter(self.add_emiter(.WindowResize) catch {
-            logger.log(.Fatal, "Failed to register window resize emiter", .{});
-
-            unreachable;
-        });
-
-        Platform.cursor_position_callback(window, cursor_changed);
-   }
-
     pub fn cursor_changed(window: ?*Platform.Window, x: f64, y: f64) callconv (.C) void {
         cursor = .{
             .x = @floatCast(x),
@@ -189,31 +146,31 @@ pub const EventSystem = struct {
         Platform.set_cursor_position(window, 0.0, 0.0);
     }
 
-    pub fn input(self: *EventSystem, window: *Platform.Window) void {
-        Platform.poll_events();
-
+    pub fn input(self: *EventSystem) void {
         for (0..self.events.len) |i| {
             for (0..self.events[i].emiters.items.len) |k| {
                 if (self.events[i].emiters.items[k].changed) {
                     self.events[i].listen(self.events[i].emiters.items[k].value);
-                    self.events[i].emiters.items[k].changed = false;
+                    if (i != 0) {
+                        self.events[i].emiters.items[k].changed = false;
+                    }
                 }
             }
         }
 
-        if (cursor.changed) {
-            self.fire(Event.Type.MouseMove, .{ .f32 = .{ cursor.x, cursor.y } });
+        // if (cursor.changed) {
+        //     self.fire(Event.Type.MouseMove, .{ .f32 = .{ cursor.x, cursor.y } });
 
-            cursor.changed = false;
-        }
+        //     cursor.changed = false;
+        // }
 
-        for (keys) |key| {
-            if (Platform.get_key(window, key) == Press) {
-                self.fire(Event.Type.KeyPress, .{ .i32 = .{ key, Press} });
-            }
-        }
+        // for (keys) |key| {
+            // if (Platform.get_key(window, key) == Press) {
+                // self.fire(Event.Type.KeyPress, .{ .i32 = .{ key, Press} });
+            // }
+        // }
 
-        if (Platform.window_should_close(window)) self.state = .Closing;
+        // if (Platform.window_should_close(window)) self.state = .Closing;
     }
 
     fn fire(self: *EventSystem, event_type: Event.Type, argument: Argument) void {

@@ -11,17 +11,12 @@ const c = _platform.c;
 const configuration = _config.Configuration;
 const logger = configuration.logger;
 
-const PLATFORM_EXTENSIONS = &[_] [*:0]const u8 {
-    "VK_KHR_surface",
-    "VK_KHR_xcb_surface"
-};
-
 pub const Instance = struct {
     handle: c.VkInstance,
 
-    pub fn new() !Instance {
+    pub fn new(comptime platform: type) !Instance {
         var instance: c.VkInstance = undefined;
-        const vkCreateInstance = Platform.get_instance_function() catch |e| {
+        const vkCreateInstance = _platform.get_instance_function() catch |e| {
             logger.log(.Error, "Lib vulkan not found", .{});
 
             return e;
@@ -29,8 +24,8 @@ pub const Instance = struct {
 
         try check(vkCreateInstance(&.{
             .sType = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-            .enabledExtensionCount = @as(u32, @intCast(PLATFORM_EXTENSIONS.len)),
-            .ppEnabledExtensionNames = PLATFORM_EXTENSIONS.ptr,
+            .enabledExtensionCount = @as(u32, @intCast(platform.Extensions.len)),
+            .ppEnabledExtensionNames = platform.Extensions.ptr,
             .pApplicationInfo = &.{
                 .sType = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
                 .pApplicationName = @as([*:0]const u8, @ptrCast(configuration.application_name)),
@@ -158,7 +153,7 @@ pub const Instance = struct {
 };
 
 fn populate_instance_functions(instance: c.VkInstance) !void {
-    const vkGetInstanceProcAddr = try Platform.get_instance_procaddr(instance);
+    const vkGetInstanceProcAddr = try _platform.get_instance_procaddr(instance);
 
     vkDestroySurfaceKHR = @as(c.PFN_vkDestroySurfaceKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkDestroySurfaceKHR"))) orelse return error.FunctionNotFound;
     vkEnumeratePhysicalDevices = @as(c.PFN_vkEnumeratePhysicalDevices, @ptrCast(vkGetInstanceProcAddr(instance, "vkEnumeratePhysicalDevices"))) orelse return error.FunctionNotFound;
