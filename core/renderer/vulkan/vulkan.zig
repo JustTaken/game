@@ -1,111 +1,95 @@
-const std = @import("std");
+const std                = @import("std");
 
-const _config = @import("../../util/configuration.zig");
-const _platform = @import("../../platform/platform.zig");
-const _game = @import("../../game.zig");
+const _container         = @import("../../container/container.zig");
+const _platform          = @import("../../platform/platform.zig");
+const _config            = @import("../../util/configuration.zig");
 
-const _instance = @import("instance.zig");
-const _window = @import("window.zig");
-const _device = @import("device.zig");
-const _sawpchain = @import("swapchain.zig");
+const _sync              = @import("sync.zig");
+const _data              = @import("data.zig");
+const _window            = @import("window.zig");
+const _device            = @import("device.zig");
+const _instance          = @import("instance.zig");
+const _sawpchain         = @import("swapchain.zig");
+const _command_pool      = @import("command_pool.zig");
 const _graphics_pipeline = @import("graphics_pipeline.zig");
-const _command_pool = @import("command_pool.zig");
-const _sync = @import("sync.zig");
-const _data = @import("data.zig");
 
-const Instance = _instance.Instance;
-const Window = _window.Window;
-const Device = _device.Device;
-const Swapchain = _sawpchain.Swapchain;
-const GraphicsPipeline = _graphics_pipeline.GraphicsPipeline;
-const CommandPool = _command_pool.CommandPool;
-const Sync = _sync.Sync;
-const Data = _data.Data;
+const Sync               = _sync.Sync;
+const Data               = _data.Data;
+const Device             = _device.Device;
+const Window             = _window.Window;
+const Instance           = _instance.Instance;
+const Swapchain          = _sawpchain.Swapchain;
+const CommandPool        = _command_pool.CommandPool;
+const GraphicsPipeline   = _graphics_pipeline.GraphicsPipeline;
 
-const Platform = _platform.Platform;
-const Game = _game.Game;
-const configuration = _config.Configuration;
-const logger = configuration.logger;
+const Container          = _container.Container;
+const Allocator          = std.mem.Allocator;
+const Platform           = _platform.Platform;
+const logger             = _config.Configuration.logger;
 
 pub const Vulkan = struct {
-    instance: Instance,
-    window: Window,
-    device: Device,
-    swapchain: Swapchain,
+    sync:              Sync,
+    data:              Data,
+    window:            Window,
+    device:            Device,
+    instance:          Instance,
+    swapchain:         Swapchain,
+    command_pool:      CommandPool,
     graphics_pipeline: GraphicsPipeline,
-    command_pool: CommandPool,
-    sync: Sync,
-    data: Data,
 
-    pub fn new(comptime P: type, platform: P) !Vulkan {
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        const allocator = arena.allocator();
-
-        defer { _ = arena.deinit(); }
-
+    pub fn new(comptime P: type, platform: P, allocator: Allocator) !Vulkan {
         const instance = Instance.new(P) catch |e| {
             logger.log(.Error, "Failed to create instance", .{});
-
             return e;
         };
 
-        const window = Window.new(
-            platform.create_surface(instance.handle) catch |e| {
+        const window = Window.new(platform.create_surface(instance.handle) catch |e| {
                 logger.log(.Error, "Failed to create surface", .{});
-
                 return e;
-            }
-        ) catch |e| {
+            }) catch |e| {
             logger.log(.Error, "Failed to create window", .{});
-
             return e;
         };
 
         const device = Device.new(instance, window.surface, allocator) catch |e| {
             logger.log(.Error, "Failed to create device", .{});
-
             return e;
         };
 
         var graphics_pipeline = GraphicsPipeline.new(device, instance, window, allocator) catch |e| {
             logger.log(.Error, "Failed to create graphics_pipeline", .{});
-
             return e;
         };
 
-        const swapchain = Swapchain.new(device, null, instance, window, graphics_pipeline) catch |e| {
+        const swapchain = Swapchain.new(device, allocator, instance, window, graphics_pipeline) catch |e| {
             logger.log(.Error, "Failed to create swapchain", .{});
-
             return e;
         };
 
         const sync = Sync.new(device) catch |e| {
             logger.log(.Error, "Failed to create sync objects", .{});
-
             return e;
         };
 
-        const data = Data.new(device, instance.get_physical_device_memory_properties(device.physical_device), &graphics_pipeline.descriptor) catch |e| {
+        const data = Data.new(device, &graphics_pipeline.descriptor, allocator) catch |e| {
             logger.log(.Error, "Failed to create objects data", .{});
-
             return e;
         };
 
         const command_pool = CommandPool.new(device, swapchain) catch |e| {
             logger.log(.Error, "Failed to create command pool", .{});
-
             return e;
         };
 
         return .{
-            .instance = instance,
-            .window = window,
-            .device = device,
-            .swapchain = swapchain,
+            .sync              = sync,
+            .data              = data,
+            .device            = device,
+            .window            = window,
+            .swapchain         = swapchain,
+            .instance          = instance,
+            .command_pool      = command_pool,
             .graphics_pipeline = graphics_pipeline,
-            .command_pool = command_pool,
-            .sync = sync,
-            .data = data,
         };
     }
 
@@ -113,16 +97,15 @@ pub const Vulkan = struct {
         self.sync.update(self.device);
     }
 
-    pub fn draw(self: *Vulkan, game: *Game) !bool {
-        const scene_changed = game.object_handle.has_change() or game.camera.changed;
+    pub fn draw(self: *Vulkan, container: *Container) !bool {
+        const scene_changed = container.updates.items.len > 0 or container.camera.changed;
 
         if (scene_changed) {
             self.data.register_changes(
                 self.device,
-                self.instance.get_physical_device_memory_properties(self.device.physical_device),
                 &self.graphics_pipeline.descriptor,
                 &self.command_pool,
-                game
+                container
             ) catch |e| {
                 logger.log(.Error, "Failed to register changes in frame", .{});
 
@@ -134,9 +117,7 @@ pub const Vulkan = struct {
         if (self.window.resized or scene_changed or self.swapchain.force_redraw) {
             if (try self.swapchain.draw_next_frame(
                 self.device,
-                self.instance,
                 self.graphics_pipeline,
-                &self.window,
                 &self.command_pool,
                 self.data,
                 &self.sync
@@ -151,7 +132,6 @@ pub const Vulkan = struct {
                 );
 
                 self.window.resized = false;
-                self.swapchain.force_redraw = true;
             } else {
                 self.sync.changed = true;
                 self.swapchain.force_redraw = false;
@@ -168,7 +148,7 @@ pub const Vulkan = struct {
         self.data.destroy(self.device);
         self.sync.destroy(self.device);
         self.graphics_pipeline.destroy(self.device);
-        self.swapchain.destroy(self.device, true);
+        self.swapchain.destroy(self.device);
         self.device.destroy();
         self.window.destroy(self.instance);
         self.instance.destroy();

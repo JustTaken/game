@@ -1,4 +1,4 @@
-const std = @import("std");
+const std  = @import("std");
 const _log = @import("log.zig");
 
 const Log = _log.Log;

@@ -1,20 +1,20 @@
-const std = @import("std");
+const std                        = @import("std");
 
-const _config = @import("../../util/configuration.zig");
-const _collections = @import("../../util/collections.zig");
-const _platform = @import("../../platform/platform.zig");
+const _config                    = @import("../../util/configuration.zig");
+const _collections               = @import("../../collections/collections.zig");
+const _platform                  = @import("../../platform/platform.zig");
 
-const _error = @import("error.zig");
-const _instance = @import("instance.zig");
+const _error                     = @import("error.zig");
+const _instance                  = @import("instance.zig");
 
-const Instance = _instance.Instance;
-const check = _error.check;
-const ArrayList = _collections.ArrayList;
-const Allocator = std.mem.Allocator;
+const Instance                   = _instance.Instance;
+const check                      = _error.check;
+const ArrayList                  = _collections.ArrayList;
+const Allocator                  = std.mem.Allocator;
 
-const c = _platform.c;
-const configuration = _config.Configuration;
-const logger = configuration.logger;
+const c                          = _platform.c;
+const configuration              = _config.Configuration;
+const logger                     = configuration.logger;
 
 const REQUIRED_DEVICE_EXTENSIONS = [_][*:0]const u8 {
       c.VK_KHR_SWAPCHAIN_EXTENSION_NAME
@@ -23,6 +23,7 @@ const REQUIRED_DEVICE_EXTENSIONS = [_][*:0]const u8 {
 pub const Device = struct {
     handle: c.VkDevice,
     physical_device: c.VkPhysicalDevice,
+    memory_properties: c.VkPhysicalDeviceMemoryProperties, 
     queues: [4]Queue,
 
     pub const Queue = struct {
@@ -91,8 +92,13 @@ pub const Device = struct {
                         break :rate 0;
                     }
 
-                    if (!((instance.get_physical_device_surface_formats(physical_device, surface, allocator) catch break :rate 0).len > 0)) break :rate 0;
-                    if (!((instance.get_physical_device_surface_present_modes(physical_device, surface, allocator) catch break :rate 0).len > 0)) break :rate 0;
+                    const surface_formats = instance.get_physical_device_surface_formats(physical_device, surface, allocator) catch break :rate 0;
+                    defer allocator.free(surface_formats);
+                    const present_formats = instance.get_physical_device_surface_present_modes(physical_device, surface, allocator) catch break :rate 0;
+                    defer allocator.free(present_formats);
+
+                    if (!(surface_formats.len > 0)) break :rate 0;
+                    if (!(present_formats.len > 0)) break :rate 0;
 
                     const families_properties = instance.get_physical_device_queue_family_properties(physical_device, allocator) catch |e| {
                         logger.log(.Error, "Failed to get queue family properties", .{});
@@ -209,16 +215,18 @@ pub const Device = struct {
             .handle = device,
             .queues = queues,
             .physical_device = physical_device,
+            .memory_properties = instance.get_physical_device_memory_properties(physical_device),
         };
     }
 
-    pub fn get_swapchain_images(self: Device, swapchain: c.VkSwapchainKHR, allocator: Allocator) ![]c.VkImage {
+    pub fn get_swapchain_images(self: Device, swapchain: c.VkSwapchainKHR, allocator: Allocator) !ArrayList(c.VkImage) {
         var count: u32 = undefined;
 
         try check(vkGetSwapchainImagesKHR(self.handle, swapchain, &count, null));
-        const images = try allocator.alloc(c.VkImage, count);
+        var images = try ArrayList(c.VkImage).init(allocator, count);
+        images.items.len = count;
 
-        try check(vkGetSwapchainImagesKHR(self.handle, swapchain, &count, images.ptr));
+        try check(vkGetSwapchainImagesKHR(self.handle, swapchain, &count, images.items.ptr));
 
         return images;
     }
@@ -352,7 +360,6 @@ pub const Device = struct {
     }
 
     pub fn wait_for_fences(self: Device, fence: *c.VkFence) !void {
-        // const MAX: u64 = 0xFFFFFFFFFFFFFFFF;
         const MAX: u64 = 0xFFFFFF;
         try check(vkWaitForFences(self.handle, 1, fence, c.VK_TRUE, MAX));
     }
@@ -361,7 +368,7 @@ pub const Device = struct {
         try check(vkResetFences(self.handle, 1, fence));
     }
 
-    pub fn allocate_command_buffers(self: Device, info: c.VkCommandBufferAllocateInfo, allocator: Allocator) ![]c.VkCommandBuffer {
+    pub fn allocate_command_buffers(self: Device, allocator: Allocator, info: c.VkCommandBufferAllocateInfo) ![]c.VkCommandBuffer {
         var command_buffers = try allocator.alloc(c.VkCommandBuffer, info.commandBufferCount);
         try check(vkAllocateCommandBuffers(self.handle, &info, &command_buffers[0]));
 
@@ -391,7 +398,7 @@ pub const Device = struct {
         return index;
     }
 
-    pub fn queue_submit(self: Device, info: c.VkSubmitInfo, fence: c.VkFence) !void {
+    pub fn queue_submit(self: Device, fence: c.VkFence, info: c.VkSubmitInfo) !void {
         try check(vkQueueSubmit(self.queues[0].handle, 1, &info, fence));
     }
 
@@ -516,6 +523,9 @@ pub const Device = struct {
         vkDestroyFence(self.handle, fence, null);
     }
 
+    pub fn destroy_image(self: Device, image: c.VkImage) void {
+        vkDestroyImage(self.handle, image, null);
+    }
     pub fn destroy_image_view(self: Device, image_view: c.VkImageView) void {
         vkDestroyImageView(self.handle, image_view, null);
     }
@@ -589,6 +599,7 @@ pub fn populate_device_functions(device: c.VkDevice, instance: c.VkInstance) !vo
     vkDestroyPipelineLayout = @as(c.PFN_vkDestroyPipelineLayout, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyPipelineLayout"))) orelse return error.FunctionNotFound;
     vkDestroyRenderPass = @as(c.PFN_vkDestroyRenderPass, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyRenderPass"))) orelse return error.FunctionNotFound;
     vkDestroySwapchainKHR = @as(c.PFN_vkDestroySwapchainKHR, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroySwapchainKHR"))) orelse return error.FunctionNotFound;
+    vkDestroyImage = @as(c.PFN_vkDestroyImage, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyImage"))) orelse return error.FunctionNotFound;
     vkDestroyImageView = @as(c.PFN_vkDestroyImageView, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyImageView"))) orelse return error.FunctionNotFound;
     vkDestroyShaderModule = @as(c.PFN_vkDestroyShaderModule, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyShaderModule"))) orelse return error.FunctionNotFound;
     vkDestroySemaphore = @as(c.PFN_vkDestroySemaphore, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroySemaphore"))) orelse return error.FunctionNotFound;
@@ -654,6 +665,7 @@ var vkDestroyCommandPool: *const fn (c.VkDevice, c.VkCommandPool, ?*const c.VkAl
 var vkDestroyPipeline: *const fn (c.VkDevice, c.VkPipeline, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
 var vkDestroyPipelineLayout: *const fn (c.VkDevice, c.VkPipelineLayout, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
 var vkDestroyRenderPass: *const fn (c.VkDevice, c.VkRenderPass, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkDestroyImage: *const fn (c.VkDevice, c.VkImage, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
 var vkDestroyImageView: *const fn (c.VkDevice, c.VkImageView, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
 var vkDestroySwapchainKHR: *const fn (c.VkDevice, c.VkSwapchainKHR, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
 var vkDestroyShaderModule: *const fn (c.VkDevice, c.VkShaderModule, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;

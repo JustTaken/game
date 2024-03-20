@@ -1,25 +1,25 @@
-const std = @import("std");
+const std                = @import("std");
 
-const _config = @import("../../util/configuration.zig");
-const _collections = @import("../../util/collections.zig");
-const _platform = @import("../../platform/platform.zig");
+const _config            = @import("../../util/configuration.zig");
+const _collections       = @import("../../collections/collections.zig");
+const _platform          = @import("../../platform/platform.zig");
 
-const _device = @import("device.zig");
+const _device            = @import("device.zig");
 const _graphics_pipeline = @import("graphics_pipeline.zig");
-const _swapchain = @import("swapchain.zig");
-const _data = @import("data.zig");
+const _swapchain         = @import("swapchain.zig");
+const _data              = @import("data.zig");
 
-const Swapchain = _swapchain.Swapchain;
-const GraphicsPipeline = _graphics_pipeline.GraphicsPipeline;
-const Device = _device.Device;
-const Data = _data.Data;
+const Swapchain          = _swapchain.Swapchain;
+const GraphicsPipeline   = _graphics_pipeline.GraphicsPipeline;
+const Device             = _device.Device;
+const Data               = _data.Data;
 
-const ArrayList = _collections.ArrayList;
-const ArenaAllocator = std.heap.ArenaAllocator;
+const ArrayList          = _collections.ArrayList;
+const ArenaAllocator     = std.heap.ArenaAllocator;
 
-const c = _platform.c;
-const configuration = _config.Configuration;
-const logger = configuration.logger;
+const c                  = _platform.c;
+const configuration      = _config.Configuration;
+const logger             = configuration.logger;
 
 pub const CommandPool = struct {
     handle: c.VkCommandPool,
@@ -114,12 +114,12 @@ pub const CommandPool = struct {
 
         const count: u32 = @intCast(swapchain.framebuffers.items.len);
         var buffers = try ArrayList(Buffer).init(allocator, count);
-        const bs = device.allocate_command_buffers(.{
+        const bs = device.allocate_command_buffers(allocator, .{
             .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
             .commandPool = handle,
             .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
             .commandBufferCount = count,
-        }, allocator) catch |e| {
+        }) catch |e| {
             logger.log(.Error, "Failed to allocate command buffer", .{});
 
             return e;

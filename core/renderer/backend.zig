@@ -1,18 +1,21 @@
-const std = @import("std");
+const std            = @import("std");
 
-const _vulkan = @import("vulkan/vulkan.zig");
 const _configuration = @import("../util/configuration.zig");
-const _game = @import("../game.zig");
-const _event = @import("../event.zig");
-const _platform = @import("../platform/platform.zig");
+const _vulkan        = @import("vulkan/vulkan.zig");
+const _container     = @import("../container/container.zig");
+const _event         = @import("../event/event.zig");
+const _platform      = @import("../platform/platform.zig");
 
-const Vulkan = _vulkan.Vulkan;
-const Game = _game.Game;
-const Emiter = _event.EventSystem.Event.Emiter;
-const Compositor = _platform.Compositor;
-const Platform = _platform.Platform;
+const Vulkan         = _vulkan.Vulkan;
+const Container      = _container.Container;
+const Emiter         = _event.EventSystem.Event.Emiter;
 
-const logger = _configuration.Configuration.logger;
+const Compositor     = _platform.Compositor;
+const Platform       = _platform.Platform;
+
+const Allocator      = std.mem.Allocator;
+
+const logger         = _configuration.Configuration.logger;
 
 pub fn Backend(comptime compositor: Compositor, comptime renderer: Renderer) type {
     return struct {
@@ -24,7 +27,7 @@ pub fn Backend(comptime compositor: Compositor, comptime renderer: Renderer) typ
         pub const T = Renderer.get(renderer);
         pub const P = Platform(compositor);
 
-        pub fn new() !Self {
+        pub fn new(allocator: Allocator) !Self {
             const platform = P.init() catch |e| {
                 logger.log(.Error, "Could not initialize platform", .{});
 
@@ -32,7 +35,7 @@ pub fn Backend(comptime compositor: Compositor, comptime renderer: Renderer) typ
             };
 
 
-            const backend_renderer = T.new(P, platform) catch |e| {
+            const backend_renderer = T.new(P, platform, allocator) catch |e| {
                 logger.log(.Error, "Failed to initialize renderer", .{});
 
                 return e;
@@ -44,8 +47,8 @@ pub fn Backend(comptime compositor: Compositor, comptime renderer: Renderer) typ
             };
         }
 
-        pub fn draw(self: *Self, game: *Game) !void {
-            if (try self.renderer.draw(game)) {
+        pub fn draw(self: *Self, container: *Container) !void {
+            if (try self.renderer.draw(container)) {
                 self.platform.commit();
             }
 
@@ -69,14 +72,10 @@ pub fn Backend(comptime compositor: Compositor, comptime renderer: Renderer) typ
 
 pub const Renderer = enum {
     Vulkan,
-    OpenGL, // TODO: Make this work
-    X12, // TODO: Make this work
 
     fn get(self: Renderer) type {
         return switch (self) {
             .Vulkan => Vulkan,
-            .OpenGL => Vulkan, // TODO: Change to OpenGL in the future
-            .X12    => Vulkan, // TODO: Change to X12 in the future
         };
     }
 };

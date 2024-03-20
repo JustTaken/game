@@ -1,34 +1,26 @@
-const std = @import("std");
-
-const _config = @import("../util/configuration.zig");
-const _wayland = @import("wayland.zig");
-const _glfw = @import("glfw.zig");
-const _event = @import("../event.zig");
-
-const Emiter = _event.EventSystem.Event.Emiter;
-
 pub const c = @cImport({
     @cDefine("VK_USE_PLATFORM_WAYLAND_KHR", "");
     @cDefine("VK_NO_PROTOTYPES", "");
     @cInclude("vulkan/vulkan.h");
-    // @cInclude("GLFW/glfw3.h");
     @cInclude("wayland-client.h");
-    @cInclude("xdg-shell/xdg-shell.h");
-    // @cInclude("xdg-shell.c");
+    @cInclude("xdg-shell.h");
     @cInclude("dlfcn.h");
 });
 
-const Wayland = _wayland.Wayland;
-const Glfw = _glfw.Glfw;
+const std      = @import("std");
 
-const logger = _config.Configuration.logger;
+const _config  = @import("../util/configuration.zig");
+const _event   = @import("../event/event.zig");
+
+const logger   = _config.Configuration.logger;
+const Emiter   = _event.EventSystem.Event.Emiter;
 
 pub fn Platform(comptime compositor: Compositor) type {
     return struct {
         compositor: T,
 
-
         const Self =  @This();
+
         pub const Extensions = T.Extensions;
         pub const T = Compositor.get(compositor);
 
@@ -72,18 +64,6 @@ pub fn Platform(comptime compositor: Compositor) type {
         }
     };
 }
-
-pub const Compositor = enum {
-    Wayland,
-    Glfw,
-
-    fn get(comptime compositor: Compositor) type {
-        return switch (compositor) {
-            .Wayland => Wayland,
-            .Glfw => Glfw,
-        };
-    }
-};
 
 pub const KeyMap = enum(u8) {
     Esc = 1,
@@ -145,6 +125,19 @@ pub const KeyMap = enum(u8) {
     Space = 57,
 };
 
+pub const Compositor = enum {
+    Wayland,
+
+    fn get(comptime compositor: Compositor) type {
+        return switch (compositor) {
+            .Wayland => @import("wayland.zig").Wayland,
+        };
+    }
+};
+
+var GetInstanceProcAddr: vkGetInstanceProcAddr = undefined;
+var vulkan: ?*anyopaque = null;
+
 pub fn get_instance_function() !vkCreateInstance {
     if (vulkan) |_| {
     } else {
@@ -155,10 +148,6 @@ pub fn get_instance_function() !vkCreateInstance {
 }
 
 pub fn get_instance_procaddr(instance: c.VkInstance) !vkGetInstanceProcAddr {
-    if (vulkan) |_| {
-    } else {
-        vulkan = c.dlopen("libvulkan.so.1", c.RTLD_LAZY) orelse return error.LibVulkanNotFound;
-    }
     GetInstanceProcAddr = @as(c.PFN_vkGetInstanceProcAddr, @ptrCast(c.dlsym(vulkan, "vkGetInstanceProcAddr"))) orelse return error.FunctionNotFound;
     return @as(c.PFN_vkGetInstanceProcAddr, @ptrCast(GetInstanceProcAddr(instance, "vkGetInstanceProcAddr"))) orelse return error.FunctionNotFound;
 }
@@ -166,9 +155,6 @@ pub fn get_instance_procaddr(instance: c.VkInstance) !vkGetInstanceProcAddr {
 pub fn get_device_procaddr(instance: c.VkInstance) !vkGetDeviceProcAddr {
     return @as(c.PFN_vkGetDeviceProcAddr, @ptrCast(GetInstanceProcAddr(instance, "vkGetDeviceProcAddr"))) orelse return error.FunctionNotFound;
 }
-
-var GetInstanceProcAddr: vkGetInstanceProcAddr = undefined;
-var vulkan: ?*anyopaque = null;
 
 const vkCreateInstance = *const fn (?*const c.VkInstanceCreateInfo, ?*const c.VkAllocationCallbacks, ?*c.VkInstance) callconv(.C) i32;
 const vkGetInstanceProcAddr = *const fn (c.VkInstance, ?[*:0]const u8) callconv(.C) c.PFN_vkVoidFunction;
