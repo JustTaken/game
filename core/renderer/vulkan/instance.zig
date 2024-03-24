@@ -1,15 +1,15 @@
-const std = @import("std");
+const std           = @import("std");
 
-const _config = @import("../../util/configuration.zig");
-const _platform = @import("../../platform/platform.zig");
-const _error = @import("error.zig");
+const _config       = @import("../../util/configuration.zig");
+const _platform     = @import("../../platform/platform.zig");
+const _error        = @import("error.zig");
 
-const Platform = _platform.Platform;
-const check = _error.check;
+const Platform      = _platform.Platform;
+const check         = _error.check;
 
-const c = _platform.c;
+const c             = _platform.c;
 const configuration = _config.Configuration;
-const logger = configuration.logger;
+const logger        = configuration.logger;
 
 pub const Instance = struct {
     handle: c.VkInstance,
@@ -23,16 +23,16 @@ pub const Instance = struct {
         };
 
         try check(vkCreateInstance(&.{
-            .sType = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-            .enabledExtensionCount = @as(u32, @intCast(platform.Extensions.len)),
+            .sType                   = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+            .enabledExtensionCount   = @as(u32, @intCast(platform.Extensions.len)),
             .ppEnabledExtensionNames = platform.Extensions.ptr,
-            .pApplicationInfo = &.{
-                .sType = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
-                .pApplicationName = @as([*:0]const u8, @ptrCast(configuration.application_name)),
+            .pApplicationInfo        = &.{
+                .sType              = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
+                .pApplicationName   = @as([*:0]const u8, @ptrCast(configuration.application_name)),
                 .applicationVersion = configuration.version,
-                .pEngineName = @as([*:0]const u8, @ptrCast(configuration.application_name)),
-                .engineVersion = configuration.version,
-                .apiVersion = c.VK_MAKE_API_VERSION(0, 1, 3, 0),
+                .pEngineName        = @as([*:0]const u8, @ptrCast(configuration.application_name)),
+                .engineVersion      = configuration.version,
+                .apiVersion         = c.VK_MAKE_API_VERSION(0, 1, 3, 0),
             },
         }, null, &instance));
 
@@ -155,33 +155,33 @@ pub const Instance = struct {
 fn populate_instance_functions(instance: c.VkInstance) !void {
     const vkGetInstanceProcAddr = try _platform.get_instance_procaddr(instance);
 
-    vkDestroySurfaceKHR = @as(c.PFN_vkDestroySurfaceKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkDestroySurfaceKHR"))) orelse return error.FunctionNotFound;
-    vkEnumeratePhysicalDevices = @as(c.PFN_vkEnumeratePhysicalDevices, @ptrCast(vkGetInstanceProcAddr(instance, "vkEnumeratePhysicalDevices"))) orelse return error.FunctionNotFound;
-    vkEnumerateDeviceExtensionProperties = @as(c.PFN_vkEnumerateDeviceExtensionProperties, @ptrCast(vkGetInstanceProcAddr(instance, "vkEnumerateDeviceExtensionProperties"))) orelse return error.FunctionNotFound;
-    vkGetPhysicalDeviceProperties = @as(c.PFN_vkGetPhysicalDeviceProperties, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties"))) orelse return error.FunctionNotFound;
-    vkGetPhysicalDeviceFeatures = @as(c.PFN_vkGetPhysicalDeviceFeatures, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures"))) orelse return error.FunctionNotFound;
-    vkGetPhysicalDeviceSurfaceFormatsKHR = @as(c.PFN_vkGetPhysicalDeviceSurfaceFormatsKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceFormatsKHR"))) orelse return error.FunctionNotFound;
+    vkDestroySurfaceKHR                       = @as(c.PFN_vkDestroySurfaceKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkDestroySurfaceKHR"))) orelse return error.FunctionNotFound;
+    vkEnumeratePhysicalDevices                = @as(c.PFN_vkEnumeratePhysicalDevices, @ptrCast(vkGetInstanceProcAddr(instance, "vkEnumeratePhysicalDevices"))) orelse return error.FunctionNotFound;
+    vkEnumerateDeviceExtensionProperties      = @as(c.PFN_vkEnumerateDeviceExtensionProperties, @ptrCast(vkGetInstanceProcAddr(instance, "vkEnumerateDeviceExtensionProperties"))) orelse return error.FunctionNotFound;
+    vkGetPhysicalDeviceProperties             = @as(c.PFN_vkGetPhysicalDeviceProperties, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties"))) orelse return error.FunctionNotFound;
+    vkGetPhysicalDeviceFeatures               = @as(c.PFN_vkGetPhysicalDeviceFeatures, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures"))) orelse return error.FunctionNotFound;
+    vkGetPhysicalDeviceSurfaceFormatsKHR      = @as(c.PFN_vkGetPhysicalDeviceSurfaceFormatsKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceFormatsKHR"))) orelse return error.FunctionNotFound;
     vkGetPhysicalDeviceSurfacePresentModesKHR = @as(c.PFN_vkGetPhysicalDeviceSurfacePresentModesKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfacePresentModesKHR"))) orelse return error.FunctionNotFound;
-    vkGetPhysicalDeviceQueueFamilyProperties = @as(c.PFN_vkGetPhysicalDeviceQueueFamilyProperties, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceQueueFamilyProperties"))) orelse return error.FunctionNotFound;
+    vkGetPhysicalDeviceQueueFamilyProperties  = @as(c.PFN_vkGetPhysicalDeviceQueueFamilyProperties, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceQueueFamilyProperties"))) orelse return error.FunctionNotFound;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR = @as(c.PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR"))) orelse return error.FunctionNotFound;
-    vkGetPhysicalDeviceSurfaceSupportKHR = @as(c.PFN_vkGetPhysicalDeviceSurfaceSupportKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceSupportKHR"))) orelse return error.FunctionNotFound;
-    vkGetPhysicalDeviceMemoryProperties = @as(c.PFN_vkGetPhysicalDeviceMemoryProperties, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceMemoryProperties"))) orelse return error.FunctionNotFound;
-    vkGetPhysicalDeviceFormatProperties = @as(c.PFN_vkGetPhysicalDeviceFormatProperties, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFormatProperties"))) orelse return error.FunctionNotFound;
-    vkCreateDevice = @as(c.PFN_vkCreateDevice, @ptrCast(vkGetInstanceProcAddr(instance, "vkCreateDevice"))) orelse return error.FunctionNotFound;
-    vkDestroyInstance = @as(c.PFN_vkDestroyInstance, @ptrCast(vkGetInstanceProcAddr(instance, "vkDestroyInstance"))) orelse return error.FunctionNotFound;
+    vkGetPhysicalDeviceSurfaceSupportKHR      = @as(c.PFN_vkGetPhysicalDeviceSurfaceSupportKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceSurfaceSupportKHR"))) orelse return error.FunctionNotFound;
+    vkGetPhysicalDeviceMemoryProperties       = @as(c.PFN_vkGetPhysicalDeviceMemoryProperties, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceMemoryProperties"))) orelse return error.FunctionNotFound;
+    vkGetPhysicalDeviceFormatProperties       = @as(c.PFN_vkGetPhysicalDeviceFormatProperties, @ptrCast(vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFormatProperties"))) orelse return error.FunctionNotFound;
+    vkCreateDevice                            = @as(c.PFN_vkCreateDevice, @ptrCast(vkGetInstanceProcAddr(instance, "vkCreateDevice"))) orelse return error.FunctionNotFound;
+    vkDestroyInstance                         = @as(c.PFN_vkDestroyInstance, @ptrCast(vkGetInstanceProcAddr(instance, "vkDestroyInstance"))) orelse return error.FunctionNotFound;
 }
 
-var vkCreateDevice: *const fn (c.VkPhysicalDevice, *const c.VkDeviceCreateInfo, ?*const c.VkAllocationCallbacks, ?*c.VkDevice) callconv(.C) i32 = undefined;
-var vkEnumeratePhysicalDevices: *const fn (c.VkInstance, *u32, ?[*]c.VkPhysicalDevice) callconv(.C) i32 = undefined;
-var vkEnumerateDeviceExtensionProperties: *const fn (c.VkPhysicalDevice, ?[*]const u8, *u32, ?[*]c.VkExtensionProperties) callconv(.C) i32 = undefined;
-var vkGetPhysicalDeviceProperties: *const fn (c.VkPhysicalDevice, ?*c.VkPhysicalDeviceProperties) callconv(.C) void = undefined;
-var vkGetPhysicalDeviceFeatures: *const fn (c.VkPhysicalDevice, ?*c.VkPhysicalDeviceFeatures) callconv(.C) void = undefined;
-var vkGetPhysicalDeviceSurfaceFormatsKHR: *const fn (c.VkPhysicalDevice, c.VkSurfaceKHR, *u32, ?[*]c.VkSurfaceFormatKHR) callconv(.C) i32 = undefined;
+var vkCreateDevice:                            *const fn (c.VkPhysicalDevice, *const c.VkDeviceCreateInfo, ?*const c.VkAllocationCallbacks, ?*c.VkDevice) callconv(.C) i32 = undefined;
+var vkEnumeratePhysicalDevices:                *const fn (c.VkInstance, *u32, ?[*]c.VkPhysicalDevice) callconv(.C) i32 = undefined;
+var vkEnumerateDeviceExtensionProperties:      *const fn (c.VkPhysicalDevice, ?[*]const u8, *u32, ?[*]c.VkExtensionProperties) callconv(.C) i32 = undefined;
+var vkGetPhysicalDeviceProperties:             *const fn (c.VkPhysicalDevice, ?*c.VkPhysicalDeviceProperties) callconv(.C) void = undefined;
+var vkGetPhysicalDeviceFeatures:               *const fn (c.VkPhysicalDevice, ?*c.VkPhysicalDeviceFeatures) callconv(.C) void = undefined;
+var vkGetPhysicalDeviceSurfaceFormatsKHR:      *const fn (c.VkPhysicalDevice, c.VkSurfaceKHR, *u32, ?[*]c.VkSurfaceFormatKHR) callconv(.C) i32 = undefined;
 var vkGetPhysicalDeviceSurfacePresentModesKHR: *const fn (c.VkPhysicalDevice, c.VkSurfaceKHR, *u32, ?[*]c.VkPresentModeKHR) callconv(.C) i32 = undefined;
-var vkGetPhysicalDeviceQueueFamilyProperties: *const fn (c.VkPhysicalDevice, *u32, ?[*]c.VkQueueFamilyProperties) callconv(.C) void = undefined;
+var vkGetPhysicalDeviceQueueFamilyProperties:  *const fn (c.VkPhysicalDevice, *u32, ?[*]c.VkQueueFamilyProperties) callconv(.C) void = undefined;
 var vkGetPhysicalDeviceSurfaceCapabilitiesKHR: *const fn (c.VkPhysicalDevice, c.VkSurfaceKHR, *c.VkSurfaceCapabilitiesKHR) callconv(.C) i32 = undefined;
-var vkGetPhysicalDeviceSurfaceSupportKHR: *const fn (c.VkPhysicalDevice, u32, c.VkSurfaceKHR, *u32) callconv(.C) i32 = undefined;
-var vkGetPhysicalDeviceMemoryProperties: *const fn (c.VkPhysicalDevice, *c.VkPhysicalDeviceMemoryProperties) callconv(.C) void = undefined;
-var vkGetPhysicalDeviceFormatProperties: *const fn (c.VkPhysicalDevice, c.VkFormat, *c.VkFormatProperties) callconv(.C) void = undefined;
-var vkDestroySurfaceKHR: *const fn (c.VkInstance, c.VkSurfaceKHR, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
-var vkDestroyInstance: *const fn (c.VkInstance, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkGetPhysicalDeviceSurfaceSupportKHR:      *const fn (c.VkPhysicalDevice, u32, c.VkSurfaceKHR, *u32) callconv(.C) i32 = undefined;
+var vkGetPhysicalDeviceMemoryProperties:       *const fn (c.VkPhysicalDevice, *c.VkPhysicalDeviceMemoryProperties) callconv(.C) void = undefined;
+var vkGetPhysicalDeviceFormatProperties:       *const fn (c.VkPhysicalDevice, c.VkFormat, *c.VkFormatProperties) callconv(.C) void = undefined;
+var vkDestroySurfaceKHR:                       *const fn (c.VkInstance, c.VkSurfaceKHR, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkDestroyInstance:                         *const fn (c.VkInstance, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;

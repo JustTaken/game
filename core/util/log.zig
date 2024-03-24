@@ -14,8 +14,8 @@ pub const Log  = struct {
             return switch (self) {
                 .Fatal => "\x1b[1;31mFatal\x1b[0m",
                 .Error => "\x1b[0;31mError\x1b[0m",
-                .Warn => "\x1b[0;33mWarn\x1b[0m",
-                .Info => "\x1b[0;32mInfo\x1b[0m",
+                .Warn  => "\x1b[0;33mWarn\x1b[0m",
+                .Info  => "\x1b[0;32mInfo\x1b[0m",
                 .Debug => "\x1b[0;34mDebug\x1b[0m",
             };
         }

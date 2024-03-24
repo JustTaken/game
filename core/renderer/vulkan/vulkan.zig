@@ -111,7 +111,6 @@ pub const Vulkan = struct {
 
                 return e;
             };
-
         }
 
         if (self.window.resized or scene_changed or self.swapchain.force_redraw) {

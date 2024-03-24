@@ -7,6 +7,7 @@ const _platform      = @import("../platform/platform.zig");
 const _collections   = @import("../collections/collections.zig");
 const _configuration = @import("../util/configuration.zig");
 const _camera        = @import("camera.zig");
+const _font          = @import("../assets/font.zig");
 
 const Vec            = _math.Vec;
 const Matrix         = _math.Matrix;
@@ -15,10 +16,12 @@ const ArrayList      = _collections.ArrayList;
 const Allocator      = std.mem.Allocator;
 const Camera         = _camera.Camera;
 
-const ObjectType     = _object.Object.Type;
+const ObjectHandler  = _object.ObjectHandler;
+const ObjectType     = ObjectHandler.Type;
 
 const EventSystem    = _event.EventSystem;
 const Listener       = EventSystem.Event.Listener;
+const Argument       = EventSystem.Argument;
 
 const Platform       = _platform.Platform;
 const KeyMap         = _platform.KeyMap;
@@ -26,13 +29,14 @@ const KeyMap         = _platform.KeyMap;
 const configuration  = _configuration.Configuration;
 
 pub const Container = struct {
+    object_handler: ObjectHandler,
     objects:   ArrayList(Object),
     updates:   ArrayList(Update),
     camera:    Camera,
 
     const Update = struct {
         change: Change,
-        id: u16,
+        id:     u16,
 
         const Change = enum(u16) {
             color,
@@ -41,9 +45,9 @@ pub const Container = struct {
         };
 
         const Data = struct {
-            value: [4][4]f32,
+            value:     [4][4]f32,
+            change:    Change,
             operation: Operation,
-            change: Change,
 
             const Operation = enum {
                 place,
@@ -55,8 +59,8 @@ pub const Container = struct {
     const Object = struct {
         model: [4][4]f32,
         color: [4][4]f32,
-        typ: ObjectType,
-        id: u16,
+        typ:   ObjectType,
+        id:    u16,
     };
 
     fn add_object(self: *Container, object: Object) !void {
@@ -72,30 +76,16 @@ pub const Container = struct {
         };
 
         const new_matrix = switch (data.operation) {
-            .add => Matrix.mult(data.value, to_change.*),
+            .add   => Matrix.mult(data.value, to_change.*),
             .place => data.value,
         };
 
         to_change.* = new_matrix;
 
         try self.updates.push(.{
-            .id = id,
+            .id     = id,
             .change = data.change
         });
-    }
-
-    pub fn new(allocator: Allocator) !Container {
-        const camera = Camera.init(.{
-            .x =   0.0,
-            .y =   0.0,
-            .z = - 1.0,
-        });
-
-        return .{
-            .objects   = try ArrayList(Object).init(allocator, 1),
-            .updates   = try ArrayList(Update).init(allocator, 1),
-            .camera    = camera,
-        };
     }
 
     pub fn update(self: *Container) !void {
@@ -106,12 +96,81 @@ pub const Container = struct {
                 .typ   = .cone,
                 .id    = undefined,
             });
+
+            try self.add_object(.{
+                .model = Matrix.translate(1.0, 0.0, 0.0),
+                .color = Matrix.scale(0.0, 1.0, 1.0),
+                .typ = .a,
+                .id = undefined,
+            });
         }
+    }
+
+    pub fn keyboard_listener(self: *Container) Listener {
+        return .{
+            .ptr       = self,
+            .listen_fn = listen_keyboard,
+        };
+    }
+
+    pub fn mouse_listener(self: *Container) Listener {
+        return .{
+            .ptr       = self,
+            .listen_fn = listen_mouse,
+        };
+    }
+
+    pub fn resize_listener(self: *Container) Listener {
+        return .{
+            .ptr       = self,
+            .listen_fn = listen_resize,
+        };
+    }
+
+    pub fn click_listener(self: *Container) Listener {
+        return .{
+            .ptr       = self,
+            .listen_fn = listen_click,
+        };
+    }
+
+    pub fn listen_keyboard(ptr: *anyopaque, argument: Argument) bool {
+        const self: *Container = @ptrCast(@alignCast(ptr));
+        return self.camera.listen_keyboard(argument);
+    }
+
+    pub fn listen_mouse(ptr: *anyopaque, argument: Argument) bool {
+        const self: *Container = @ptrCast(@alignCast(ptr));
+        return self.camera.listen_mouse(argument);
+    }
+
+    pub fn listen_resize(ptr: *anyopaque, argument: Argument) bool {
+        const self: *Container = @ptrCast(@alignCast(ptr));
+        return self.camera.listen_resize(argument);
+    }
+
+    pub fn listen_click(ptr: *anyopaque, argument: Argument) bool {
+        const self: *Container = @ptrCast(@alignCast(ptr));
+        return self.camera.listen_click(argument);
+    }
+
+    pub fn new(allocator: Allocator) !Container {
+
+        return .{
+            .object_handler = try ObjectHandler.new("assets/font/font.ttf", "assets", allocator),
+            .objects        = try ArrayList(Object).init(allocator, 1),
+            .updates        = try ArrayList(Update).init(allocator, 1),
+            .camera         = Camera.init(.{
+                .x =   0.0,
+                .y =   0.0,
+                .z = - 1.0,
+            }),
+        };
     }
 
     pub fn shutdown(self: *Container) void {
         self.objects.deinit();
         self.updates.deinit();
+        self.object_handler.deinit();
     }
 };
-

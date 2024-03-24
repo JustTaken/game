@@ -28,8 +28,8 @@ const logger         = configuration.logger;
 pub const GraphicsPipeline = struct {
     handle:       c.VkPipeline,
     layout:       c.VkPipelineLayout,
-    render_pass:  c.VkRenderPass,
     format:       c.VkSurfaceFormatKHR,
+    render_pass:  c.VkRenderPass,
     depth_format: c.VkFormat,
     descriptor:   Descriptor,
 
@@ -63,13 +63,14 @@ pub const GraphicsPipeline = struct {
             }
 
             fn allocate(self: *Pool, device: Device, count: u32, allocator: Allocator) ![]const c.VkDescriptorSet {
-                if (!(self.descriptor_sets.items.len + count < self.descriptor_sets.capacity)) {
+                if (self.descriptor_sets.items.len + count >= self.descriptor_sets.capacity) {
                     return error.NoSpace;
                 }
 
                 const layouts = try allocator.alloc(c.VkDescriptorSetLayout, count);
-                @memset(layouts, self.descriptor_set_layout);
                 defer allocator.free(layouts);
+
+                @memset(layouts, self.descriptor_set_layout);
 
                 const descriptor_sets = device.allocate_descriptor_sets(.{
                     .sType              = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
@@ -163,8 +164,8 @@ pub const GraphicsPipeline = struct {
 
         const vert_module = device.create_shader_module(.{
             .sType    = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-            .codeSize = vert_code.len,
             .pCode    = @as([*]const u32, @ptrCast(@alignCast(vert_code))),
+            .codeSize = vert_code.len,
         }) catch |e| {
             logger.log(.Error, "Failed to create vertex shader module", .{});
 
@@ -203,16 +204,16 @@ pub const GraphicsPipeline = struct {
         const dynamic_states = &[_]c.VkDynamicState { c.VK_DYNAMIC_STATE_VIEWPORT, c.VK_DYNAMIC_STATE_SCISSOR };
         const dynamic_state_info: c.VkPipelineDynamicStateCreateInfo = .{
             .sType             = c.VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-            .dynamicStateCount = dynamic_states.len,
             .pDynamicStates    = dynamic_states.ptr,
+            .dynamicStateCount = dynamic_states.len,
         };
 
         const vertex_input_state_info: c.VkPipelineVertexInputStateCreateInfo = .{
             .sType                           = c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-            .vertexBindingDescriptionCount   = 1,
             .pVertexBindingDescriptions      = &Data.Model.Vertex.binding_description,
-            .vertexAttributeDescriptionCount = Data.Model.Vertex.attribute_descriptions.len,
+            .vertexBindingDescriptionCount   = 1,
             .pVertexAttributeDescriptions    = Data.Model.Vertex.attribute_descriptions.ptr,
+            .vertexAttributeDescriptionCount = Data.Model.Vertex.attribute_descriptions.len,
         };
 
         const input_assembly_state_info: c.VkPipelineInputAssemblyStateCreateInfo = .{
@@ -227,8 +228,8 @@ pub const GraphicsPipeline = struct {
             .pViewports    = &.{
                 .x        = 0.0,
                 .y        = 0.0,
-                .width    = @as(f32, @floatFromInt(window.width)),
-                .height   = @as(f32, @floatFromInt(window.height)),
+                .width    = @floatFromInt(window.width),
+                .height   = @floatFromInt(window.height),
                 .minDepth = 0.0,
                 .maxDepth = 1.0,
             },
@@ -243,54 +244,54 @@ pub const GraphicsPipeline = struct {
 
         const rasterizer_state_info: c.VkPipelineRasterizationStateCreateInfo = .{
             .sType                   = c.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-            .depthClampEnable        = c.VK_FALSE,
-            .rasterizerDiscardEnable = c.VK_FALSE,
-            .polygonMode             = c.VK_POLYGON_MODE_FILL,
-            .lineWidth               = 1.0,
             .cullMode                = c.VK_CULL_MODE_BACK_BIT,
             .frontFace               = c.VK_FRONT_FACE_CLOCKWISE,
+            .polygonMode             = c.VK_POLYGON_MODE_LINE,
             .depthBiasEnable         = c.VK_FALSE,
-            .depthBiasConstantFactor = 0.0,
+            .depthClampEnable        = c.VK_FALSE,
+            .rasterizerDiscardEnable = c.VK_FALSE,
+            .lineWidth               = 1.0,
             .depthBiasClamp          = 0.0,
+            .depthBiasConstantFactor = 0.0,
         };
 
         const multisampling_state_info: c.VkPipelineMultisampleStateCreateInfo = .{
             .sType                 = c.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+            .pSampleMask           = null,
+            .alphaToOneEnable      = c.VK_FALSE,
             .sampleShadingEnable   = c.VK_FALSE,
             .rasterizationSamples  = c.VK_SAMPLE_COUNT_1_BIT,
-            .minSampleShading      = 1.0,
-            .pSampleMask           = null,
             .alphaToCoverageEnable = c.VK_FALSE,
-            .alphaToOneEnable      = c.VK_FALSE,
+            .minSampleShading      = 1.0,
         };
 
         const color_blend_state_info: c.VkPipelineColorBlendStateCreateInfo = .{
             .sType           = c.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-            .logicOpEnable   = c.VK_FALSE,
             .logicOp         = c.VK_LOGIC_OP_COPY,
+            .logicOpEnable   = c.VK_FALSE,
             .blendConstants  = .{ 0.0, 0.0, 0.0, 0.0 },
             .attachmentCount = 1,
             .pAttachments    = &.{
-                .colorWriteMask      = c.VK_COLOR_COMPONENT_R_BIT | c.VK_COLOR_COMPONENT_G_BIT | c.VK_COLOR_COMPONENT_B_BIT | c.VK_COLOR_COMPONENT_A_BIT,
                 .blendEnable         = c.VK_FALSE,
+                .colorWriteMask      = c.VK_COLOR_COMPONENT_R_BIT | c.VK_COLOR_COMPONENT_G_BIT | c.VK_COLOR_COMPONENT_B_BIT | c.VK_COLOR_COMPONENT_A_BIT,
                 .srcColorBlendFactor = c.VK_BLEND_FACTOR_ONE,
                 .dstColorBlendFactor = c.VK_BLEND_FACTOR_ZERO,
-                .colorBlendOp        = c.VK_BLEND_OP_ADD,
                 .srcAlphaBlendFactor = c.VK_BLEND_FACTOR_ONE,
                 .dstAlphaBlendFactor = c.VK_BLEND_FACTOR_ZERO,
+                .colorBlendOp        = c.VK_BLEND_OP_ADD,
                 .alphaBlendOp        = c.VK_BLEND_OP_ADD,
             },
         };
 
         const depth_stencil_state_info: c.VkPipelineDepthStencilStateCreateInfo = .{
             .sType                 = c.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+            .maxDepthBounds        = 1.0,
+            .minDepthBounds        = 0.0,
+            .depthCompareOp        = c.VK_COMPARE_OP_LESS,
             .depthTestEnable       = c.VK_TRUE,
             .depthWriteEnable      = c.VK_TRUE,
-            .depthCompareOp        = c.VK_COMPARE_OP_LESS,
-            .depthBoundsTestEnable = c.VK_FALSE,
             .stencilTestEnable     = c.VK_FALSE,
-            .minDepthBounds        = 0.0,
-            .maxDepthBounds        = 1.0,
+            .depthBoundsTestEnable = c.VK_FALSE,
         };
 
         const descriptor_set_layout = try device.create_descriptor_set_layout(.{
@@ -299,9 +300,9 @@ pub const GraphicsPipeline = struct {
             .pBindings    = &[_]c.VkDescriptorSetLayoutBinding {
                 .{
                     .binding            = 0,
+                    .stageFlags         = c.VK_SHADER_STAGE_VERTEX_BIT,
                     .descriptorType     = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                     .descriptorCount    = 1,
-                    .stageFlags         = c.VK_SHADER_STAGE_VERTEX_BIT,
                     .pImmutableSamplers = null,
                 },
             }
@@ -309,8 +310,8 @@ pub const GraphicsPipeline = struct {
 
         const layout = device.create_pipeline_layout(.{
             .sType                  = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .setLayoutCount         = 2,
             .pSetLayouts            = &[_] c.VkDescriptorSetLayout {descriptor_set_layout, descriptor_set_layout},
+            .setLayoutCount         = 2,
             .pushConstantRangeCount = 0,
             .pPushConstantRanges    = null,
         }) catch |e| {
@@ -372,20 +373,20 @@ pub const GraphicsPipeline = struct {
                     .samples        = c.VK_SAMPLE_COUNT_1_BIT,
                     .loadOp         = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
                     .storeOp        = c.VK_ATTACHMENT_STORE_OP_STORE,
+                    .finalLayout    = c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                    .initialLayout  = c.VK_IMAGE_LAYOUT_UNDEFINED,
                     .stencilLoadOp  = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
                     .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
-                    .initialLayout  = c.VK_IMAGE_LAYOUT_UNDEFINED,
-                    .finalLayout    = c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                 },
                 .{
                     .format         = depth_format,
                     .samples        = c.VK_SAMPLE_COUNT_1_BIT,
                     .loadOp         = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
                     .storeOp        = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
-                    .stencilLoadOp  = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-                    .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
-                    .initialLayout  = c.VK_IMAGE_LAYOUT_UNDEFINED,
                     .finalLayout    = c.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    .initialLayout  = c.VK_IMAGE_LAYOUT_UNDEFINED,
+                    .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                    .stencilLoadOp  = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
                 }
             },
             .subpassCount          = 1,
@@ -405,8 +406,8 @@ pub const GraphicsPipeline = struct {
             .pDependencies         = &.{
                 .srcSubpass    = c.VK_SUBPASS_EXTERNAL,
                 .dstSubpass    = 0,
-                .srcStageMask  = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
                 .srcAccessMask = 0,
+                .srcStageMask  = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
                 .dstStageMask  = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
                 .dstAccessMask = c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | c.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
             },
@@ -441,10 +442,10 @@ pub const GraphicsPipeline = struct {
         return .{
             .handle       = handle,
             .layout       = layout,
-            .render_pass  = render_pass,
-            .descriptor   = descriptor,
             .format       = format,
+            .render_pass  = render_pass,
             .depth_format = depth_format,
+            .descriptor   = descriptor,
         };
     }
 

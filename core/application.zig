@@ -1,26 +1,24 @@
 const std            = @import("std");
 
-const _container          = @import("container/container.zig");
+const _container     = @import("container/container.zig");
 const _event         = @import("event/event.zig");
 const _backend       = @import("renderer/backend.zig");
 const _platform      = @import("platform/platform.zig");
 const _configuration = @import("util/configuration.zig");
 
-const Container      = _container.Container;
-
+const EventSystem    = _event.EventSystem;
 const Backend        = _backend.Backend;
 const Renderer       = _backend.Renderer;
-const Compositor     = _platform.Compositor;
 const Platform       = _platform.Platform;
-
-const EventSystem    = _event.EventSystem;
+const Compositor     = _platform.Compositor;
+const Container      = _container.Container;
 
 const logger         = _configuration.Configuration.logger;
 
 pub fn Application(comptime compositor: Compositor, comptime renderer: Renderer) type {
     return struct {
-        container:    Container,
         backend:      Backend(compositor, renderer),
+        container:    Container,
         event_system: EventSystem,
 
         const Self = @This();
@@ -39,7 +37,7 @@ pub fn Application(comptime compositor: Compositor, comptime renderer: Renderer)
             };
 
             const backend: Backend(compositor, renderer) = Backend(compositor, renderer).new(allocator) catch |e| {
-                logger.log(.Fatal, "Failed to initialize backend, {}", .{e});
+                logger.log(.Fatal, "Failed to initialize backend", .{});
 
                 return e;
             };
@@ -54,30 +52,25 @@ pub fn Application(comptime compositor: Compositor, comptime renderer: Renderer)
         }
 
         pub fn run(self: *Self) void {
-            self.event_system.add_listener(self.container.camera.listener_resize(), .WindowResize) catch {
+            self.event_system.add_listener(self.container.resize_listener(), .WindowResize) catch {
                 logger.log(.Fatal,"Failed to register camera in resize window event system", .{});
                 return;
             };
 
-            self.event_system.add_listener(self.container.camera.listener_keyboard(), .KeyPress) catch {
-                logger.log(.Fatal,"Failed to register camera in keyboard event system", .{});
-                return;
-            };
-
-            self.event_system.add_listener(self.container.camera.listener_mouse(), .MouseMove) catch {
+            self.event_system.add_listener(self.container.mouse_listener(), .MouseMove) catch {
                 logger.log(.Fatal,"Failed to register camera in mouse event system", .{});
                 return;
             };
 
-            self.event_system.add_listener(self.container.camera.listener_click(), .MouseClick) catch {
+            self.event_system.add_listener(self.container.click_listener(), .MouseClick) catch {
                 logger.log(.Fatal, "Failed to register camera in mouse click system", .{});
                 return;
             };
 
-            // self.event_system.add_listener(self.container.object_handle.listener(), .KeyPress) catch {
-            //     logger.log(.Fatal,"Failed to register object handle in keyboard event system", .{});
-            //     return;
-            // };
+            self.event_system.add_listener(self.container.keyboard_listener(), .KeyPress) catch {
+                logger.log(.Fatal,"Failed to register object handle in keyboard event system", .{});
+                return;
+            };
 
             self.event_system.add_listener(self.backend.renderer.window.listener(), .WindowResize) catch {
                 logger.log(.Fatal, "Failed to register window as window resize listener", .{});

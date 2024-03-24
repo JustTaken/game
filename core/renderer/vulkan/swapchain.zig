@@ -183,8 +183,8 @@ pub const Swapchain = struct {
         };
 
         const depth_image_memory = device.allocate_memory(.{
-            .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .allocationSize = image_memory_requirements.size,
+            .sType           = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .allocationSize  = image_memory_requirements.size,
             .memoryTypeIndex = @intCast(memory_index),
         }) catch |e| {
             logger.log(.Error, "Failed to allocate depth image memory", .{});
@@ -361,21 +361,21 @@ pub const Swapchain = struct {
         }
 
         self.depth_image = device.create_image(.{
-            .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .sType     = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .imageType = c.VK_IMAGE_TYPE_2D,
-            .extent = .{
-                .width = self.extent.width,
+            .extent    = .{
+                .width  = self.extent.width,
                 .height = self.extent.height,
-                .depth = 1,
+                .depth  = 1,
             },
-            .mipLevels = 1,
-            .arrayLayers = 1,
-            .format = pipeline.depth_format,
-            .tiling = c.VK_IMAGE_TILING_OPTIMAL,
+            .mipLevels     = 1,
+            .arrayLayers   = 1,
+            .format        = pipeline.depth_format,
+            .tiling        = c.VK_IMAGE_TILING_OPTIMAL,
             .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
-            .usage = c.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-            .samples = c.VK_SAMPLE_COUNT_1_BIT,
-            .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+            .usage         = c.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+            .samples       = c.VK_SAMPLE_COUNT_1_BIT,
+            .sharingMode   = c.VK_SHARING_MODE_EXCLUSIVE,
         }) catch |e| {
             logger.log(.Error, "Failed to create image depth", .{});
 

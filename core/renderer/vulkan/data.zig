@@ -6,6 +6,7 @@ const _math              = @import("../../math/math.zig");
 const _platform          = @import("../../platform/platform.zig");
 const _object            = @import("../../assets/object.zig");
 const _container         = @import("../../container/container.zig");
+const _font              = @import("../../assets/font.zig");
 
 const _command_pool      = @import("command_pool.zig");
 const _device            = @import("device.zig");
@@ -19,8 +20,9 @@ const ArrayList          = _collections.ArrayList;
 const Allocator          = std.mem.Allocator;
 const Matrix             = _math.Matrix;
 const Container          = _container.Container;
-const Object             = _object.Object;
-const ObjectHandle       = _container.ObjectHandle;
+const ObjectHandler      = _object.ObjectHandler;
+const Object             = ObjectHandler.Object;
+const ObjectType         = ObjectHandler.Type;
 
 const c                  = _platform.c;
 const logger             = _configuration.Configuration.logger;
@@ -47,10 +49,10 @@ pub const Data = struct {
         ) !Global {
             const buffer = try Buffer.new(device, Uniform, null,
                 . {
-                    .usage = c.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                    .usage      = c.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                     .properties = c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                    .allocator = allocator,
-                    .len = 1,
+                    .allocator  = allocator,
+                    .len        = 1,
                 });
 
             var mapped: *Uniform = undefined;
@@ -183,12 +185,12 @@ pub const Data = struct {
         };
 
         fn new(
-            device   : Device,
+            device:    Device,
             allocator: Allocator,
-            typ      : Object.Type
+            object_handler: *ObjectHandler,
+            typ:       ObjectType
         ) !Model {
-            var object = try Object.new(typ, allocator);
-            defer object.deinit();
+            var object = try object_handler.create(typ);
 
             const Index = @TypeOf(object.index.items[0]);
             const index = try Buffer.new(device, Index, object.index,
@@ -217,12 +219,14 @@ pub const Data = struct {
                 });
 
             const items = try ArrayList(Item).init(allocator, 1);
+            const len: u32 = @intCast(object.index.items.len);
+            try object.deinit();
 
             return .{
                 .index  = index,
                 .vertex = vertex,
                 .items  = items,
-                .len    = @intCast(object.index.items.len)
+                .len    = len
             };
         }
 
@@ -369,11 +373,11 @@ pub const Data = struct {
     };
 
     pub fn register_changes(
-        self:         *Data,
-        device:       Device,
-        descriptor:   *Descriptor,
-        command_pool: *CommandPool,
-        container:    *Container,
+        self:           *Data,
+        device:         Device,
+        descriptor:     *Descriptor,
+        command_pool:   *CommandPool,
+        container:      *Container,
     ) !void {
         if (container.updates.items.len > 0) {
             for (container.updates.items) |update| {
@@ -381,7 +385,7 @@ pub const Data = struct {
                 const k = @intFromEnum(object.typ);
 
                 if (self.models[k].len == 0) {
-                    self.models[k] = try Model.new(device, self.allocator, object.typ);
+                    self.models[k] = try Model.new(device, self.allocator, &container.object_handler, object.typ);
                 }
 
                 switch (update.change) {
@@ -416,7 +420,7 @@ pub const Data = struct {
     }
 
     pub fn new(device: Device, descriptor: *Descriptor, allocator: Allocator) !Data {
-        const models = try allocator.alloc(Model, @typeInfo(Object.Type).Enum.fields.len);
+        const models = try allocator.alloc(Model, @typeInfo(ObjectType).Enum.fields.len);
         @memset(models, .{
             .items  = undefined,
             .index  = undefined,

@@ -10,12 +10,12 @@ const Allocator    = std.mem.Allocator;
 const logger       = _config.Configuration.logger;
 
 pub const EventSystem = struct {
+    state:  State,
     events: []Event,
-    state: State,
 
     pub const Event = struct {
+        emiters:   ArrayList(Emiter),
         listeners: ArrayList(Listener),
-        emiters: ArrayList(Emiter),
 
         pub const Emiter = struct {
             value:         Argument,
@@ -32,12 +32,12 @@ pub const EventSystem = struct {
         };
 
         pub const Listener= struct {
-            working: bool = false,
-            ptr: *anyopaque,
+            ptr:       *anyopaque,
+            working:    bool = false,
             listen_fn: *const fn (*anyopaque, Argument) bool,
 
             fn listen(self: *Listener, argument: Argument) bool {
-                self.working = true;
+                self.working       = true;
                 defer self.working = false;
 
                 return self.listen_fn(self.ptr, argument);
@@ -50,9 +50,9 @@ pub const EventSystem = struct {
 
         fn new_emiter(self: *Event, reset_on_emit: bool) !*Emiter {
             const emiter: Emiter = .{
-                .changed = false,
+                .value         = .{ .u32  = .{0, 0} },
+                .changed       = false,
                 .reset_on_emit = reset_on_emit,
-                .value = .{ .u32  = .{0, 0} },
             };
 
             try self.emiters.push(emiter);
@@ -75,24 +75,24 @@ pub const EventSystem = struct {
         u16: [4]u16,
         f16: [4]f16,
 
-        i8: [8]i8,
-        u8: [8]u8,
+        i8:  [8]i8,
+        u8:  [8]u8,
     };
 
     pub fn new(allocator: Allocator) !EventSystem {
         const n = @typeInfo(Event.Type).Enum.fields.len;
-        var events = try allocator.alloc(Event, n);
+        const events = try allocator.alloc(Event, n);
 
         for (0..n) |i| {
             events[i] = .{
-                .listeners = try ArrayList(Event.Listener).init(allocator, 1),
                 .emiters   = try ArrayList(Event.Emiter).init(allocator, 1),
+                .listeners = try ArrayList(Event.Listener).init(allocator, 1),
             };
         }
 
         return .{
-            .events = events,
             .state  = .Running,
+            .events = events,
         };
     }
 

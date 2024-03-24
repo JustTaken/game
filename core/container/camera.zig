@@ -18,11 +18,11 @@ const configuration = _config.Configuration;
 pub const Camera = struct {
     proj: [4][4]f32,
     view: [4][4]f32,
-    eye: Vec,
+    eye:  Vec,
 
-    changed: bool = true,
+    changed:  bool = true,
     clicking: bool = false,
-    aspect: f32,
+    aspect:   f32,
 
     const Direction = enum {
         X,
@@ -40,7 +40,6 @@ pub const Camera = struct {
     const fov:  f32 = std.math.pi * 0.25;
     const near: f32 = 0.10;
     const far:  f32 = 10.0;
-
     pub fn init(eye: Vec) Camera {
         const right_vec: Vec = .{.x = 1.0, .y =   0.0, .z = 0.0};
         const up_vec:    Vec = .{.x = 0.0, .y = - 1.0, .z = 0.0};
@@ -60,48 +59,18 @@ pub const Camera = struct {
         };
     }
 
-    pub fn listener_resize(self: *Camera) Listener {
-        return .{
-            .ptr = self,
-            .listen_fn = listen_resize,
-        };
-    }
-
-    pub fn listener_keyboard(self: *Camera) Listener {
-        return .{
-            .ptr = self,
-            .listen_fn = listen_keyboard,
-        };
-    }
-
-    pub fn listener_click(self: *Camera) Listener {
-        return .{
-            .ptr = self,
-            .listen_fn = listen_click,
-        };
-    }
-
-    pub fn listener_mouse(self: *Camera) Listener {
-        return .{
-            .ptr = self,
-            .listen_fn = listen_mouse,
-        };
-    }
-
-    pub fn listen_keyboard(ptr: *anyopaque, argument: Argument) bool {
-        const self: *Camera = @ptrCast(@alignCast(ptr));
-
+    pub fn listen_keyboard(self: *Camera, argument: Argument) bool {
         for (argument.u16) |k| {
             if (k == 0) continue;
             const e = @as(KeyMap, @enumFromInt(k));
 
             switch (e) {
-                .Space   => self.move(- 0.1, .Y),
-                .Control => self.move(  0.1, .Y),
+                .S       => self.move(- 0.1, .Z),
                 .W       => self.move(  0.1, .Z),
                 .A       => self.move(- 0.1, .X),
-                .S       => self.move(- 0.1, .Z),
                 .D       => self.move(  0.1, .X),
+                .Space   => self.move(- 0.1, .Y),
+                .Control => self.move(  0.1, .Y),
                 else     => { continue; },
             }
 
@@ -111,8 +80,7 @@ pub const Camera = struct {
         return false;
     }
 
-    pub fn listen_mouse(ptr: *anyopaque, argument: Argument) bool {
-        const self: *Camera = @ptrCast(@alignCast(ptr));
+    pub fn listen_mouse(self: *Camera, argument: Argument) bool {
         if (!self.clicking) return false;
 
         const x = @as(f32, @floatFromInt(argument.i32[0])) * 0.000015;
@@ -153,18 +121,15 @@ pub const Camera = struct {
         return false;
     }
 
-    pub fn listen_click(ptr: *anyopaque, argument: Argument) bool {
-        const self: *Camera = @ptrCast(@alignCast(ptr));
+    pub fn listen_click(self: *Camera, argument: Argument) bool {
         self.clicking = argument.u32[0] == 1;
 
         return false;
     }
 
-    pub fn listen_resize(ptr: *anyopaque, argument: Argument) bool {
-        const self: *Camera = @ptrCast(@alignCast(ptr));
-
-        self.aspect = @as(f32, @floatFromInt(argument.u32[0])) / @as(f32, @floatFromInt(argument.u32[1]));
-        self.proj = Matrix.perspective(fov, self.aspect, near, far);
+    pub fn listen_resize(self: *Camera, argument: Argument) bool {
+        self.aspect  = @as(f32, @floatFromInt(argument.u32[0])) / @as(f32, @floatFromInt(argument.u32[1]));
+        self.proj    = Matrix.perspective(fov, self.aspect, near, far);
         self.changed = true;
 
         return false;

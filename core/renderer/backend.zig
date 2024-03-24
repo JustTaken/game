@@ -1,10 +1,10 @@
 const std            = @import("std");
 
-const _configuration = @import("../util/configuration.zig");
 const _vulkan        = @import("vulkan/vulkan.zig");
 const _container     = @import("../container/container.zig");
 const _event         = @import("../event/event.zig");
 const _platform      = @import("../platform/platform.zig");
+const _configuration = @import("../util/configuration.zig");
 
 const Vulkan         = _vulkan.Vulkan;
 const Container      = _container.Container;

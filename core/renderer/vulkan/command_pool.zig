@@ -27,27 +27,27 @@ pub const CommandPool = struct {
     arena: ArenaAllocator,
 
     const Buffer = struct {
-        handle: c.VkCommandBuffer,
+        handle:   c.VkCommandBuffer,
         is_valid: bool = false,
-        id: u32,
+        id:       u32,
 
         pub fn record(self: *Buffer, device: Device, pipeline: GraphicsPipeline, swapchain: Swapchain, data: Data) !void {
             try device.begin_command_buffer(self.handle, .{
-                .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-                .flags = 0,
+                .sType            = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+                .flags            = 0,
                 .pInheritanceInfo = null,
             });
 
             device.cmd_begin_render_pass(self.handle, .{
-                .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-                .renderPass = pipeline.render_pass,
-                .framebuffer = swapchain.framebuffers.items[self.id],
-                .renderArea = .{
+                .sType           = c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+                .renderPass      = pipeline.render_pass,
+                .framebuffer     = swapchain.framebuffers.items[self.id],
+                .renderArea      = .{
                     .offset = .{ .x = 0, .y = 0 },
                     .extent = swapchain.extent,
                 },
                 .clearValueCount = 2,
-                .pClearValues= &[_] c.VkClearValue {
+                .pClearValues    = &[_] c.VkClearValue {
                     .{
                         .color = .{ .float32 = .{0.0, 0.0, 0.0, 1.0}, }
                     },
@@ -58,10 +58,10 @@ pub const CommandPool = struct {
             });
 
             device.cmd_set_viewport(self.handle, .{
-                .x = 0.0,
-                .y = 0.0,
-                .width = @as(f32, @floatFromInt(swapchain.extent.width)),
-                .height = @as(f32, @floatFromInt(swapchain.extent.height)),
+                .x        = 0.0,
+                .y        = 0.0,
+                .width    = @as(f32, @floatFromInt(swapchain.extent.width)),
+                .height   = @as(f32, @floatFromInt(swapchain.extent.height)),
                 .minDepth = 0.0,
                 .maxDepth = 1.0,
             });
@@ -113,11 +113,12 @@ pub const CommandPool = struct {
         };
 
         const count: u32 = @intCast(swapchain.framebuffers.items.len);
-        var buffers = try ArrayList(Buffer).init(allocator, count);
-        const bs = device.allocate_command_buffers(allocator, .{
-            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-            .commandPool = handle,
-            .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        var buffers      = try ArrayList(Buffer).init(allocator, count);
+
+        const bs         = device.allocate_command_buffers(allocator, .{
+            .sType              = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .commandPool        = handle,
+            .level              = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
             .commandBufferCount = count,
         }) catch |e| {
             logger.log(.Error, "Failed to allocate command buffer", .{});
@@ -128,14 +129,14 @@ pub const CommandPool = struct {
         for (0..count) |i| {
             try buffers.push(.{
                 .handle = bs[i],
-                .id = @intCast(i),
+                .id     = @intCast(i),
             });
         }
 
         return .{
             .buffers = buffers,
-            .handle = handle,
-            .arena = arena,
+            .handle  = handle,
+            .arena   = arena,
         };
     }
 

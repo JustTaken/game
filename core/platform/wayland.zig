@@ -86,8 +86,8 @@ pub const Wayland = struct {
 
             fn motion(data: ?*anyopaque, pt: ?*WlPointer, time: u32, x: i32, y: i32) callconv(.C) void {
                 mouse_emiter.value.i32 = .{ x - mouse_position[0], y - mouse_position[1] };
-                mouse_emiter.changed = true;
-                mouse_position = .{ x, y };
+                mouse_emiter.changed   = true;
+                mouse_position         = .{ x, y };
 
                 _ = data;
                 _ = pt;
@@ -206,8 +206,8 @@ pub const Wayland = struct {
                         for (0..4) |i| {
                             if (keyboard_emiter.value.u16[i] == 0) {
                                 keyboard_emiter.value.u16[i] = @intCast(k);
-                                keyboard_emiter.changed = true;
-                                keyboard_emiter_len += 1;
+                                keyboard_emiter.changed      = true;
+                                keyboard_emiter_len         += 1;
 
                                 return;
                             }
@@ -217,7 +217,7 @@ pub const Wayland = struct {
                     for (0..4) |i| {
                         if (keyboard_emiter.value.u16[i] == k) {
                             keyboard_emiter.value.u16[i] = 0;
-                            keyboard_emiter_len -= 1;
+                            keyboard_emiter_len         -= 1;
 
                             return;
                         }
@@ -256,9 +256,9 @@ pub const Wayland = struct {
 
             if (cap != 0 and c.WL_SEAT_CAPABILITY_KEYBOARD != 0 and c.WL_SEAT_CAPABILITY_POINTER != 0) {
                 keyboard = c.wl_seat_get_keyboard(s) orelse return;
-                pointer= c.wl_seat_get_pointer(s) orelse return;
-                _ = c.wl_keyboard_add_listener(keyboard, &Keyboard.listener, null);
-                _ = c.wl_pointer_add_listener(pointer, &Pointer.listener, null);
+                pointer  = c.wl_seat_get_pointer(s)  orelse return;
+                _        = c.wl_keyboard_add_listener(keyboard, &Keyboard.listener, null);
+                _        = c.wl_pointer_add_listener(pointer, &Pointer.listener, null);
             }
         }
 
@@ -298,7 +298,7 @@ pub const Wayland = struct {
         pub fn new(display: Display) !Registry {
             const handle = c.wl_display_get_registry(display.handle) orelse return error.RegistryGet;
             const listener: c.wl_registry_listener = .{
-                .global = global_listener,
+                .global        = global_listener,
                 .global_remove = global_remove_listener,
             };
 
@@ -321,11 +321,11 @@ pub const Wayland = struct {
                 const comp = c.wl_registry_bind(registry, name, &c.wl_compositor_interface, 4) orelse return;
                 compositor = @ptrCast(@alignCast(comp));
             } else if (std.mem.eql(u8, interface_name, std.mem.span(c.xdg_wm_base_interface.name))) {
-                const s = c.wl_registry_bind(registry, name, &c.xdg_wm_base_interface, 1) orelse return;
-                shell = @ptrCast(@alignCast(s));
+                const s    = c.wl_registry_bind(registry, name, &c.xdg_wm_base_interface, 1) orelse return;
+                shell      = @ptrCast(@alignCast(s));
             } else if (std.mem.eql(u8, interface_name, std.mem.span(c.wl_seat_interface.name))) {
-                const s = c.wl_registry_bind(registry, name, &c.wl_seat_interface, 1) orelse return;
-                seat = @ptrCast(@alignCast(s));
+                const s    = c.wl_registry_bind(registry, name, &c.wl_seat_interface, 1) orelse return;
+                seat       = @ptrCast(@alignCast(s));
             }
         }
 
@@ -406,7 +406,7 @@ pub const Wayland = struct {
 
         const toplevel_listener: c.xdg_toplevel_listener = .{
             .configure = toplevel_configure,
-            .close = toplevel_close,
+            .close     = toplevel_close,
         };
 
         fn shell_ping(data: ?*anyopaque, s: ?*XdgWmBase, serial: u32) callconv(.C) void {
@@ -449,11 +449,11 @@ pub const Wayland = struct {
     };
 
     pub fn init() !Wayland {
-        const display = try Display.new();
+        const display  = try Display.new();
         const registry = try Registry.new(display);
-        const surf = try Surface.new();
-        const comp = Compositor.new();
-        const xdg = try Xdg.new(surf.handle);
+        const surf     = try Surface.new();
+        const comp     = Compositor.new();
+        const xdg      = try Xdg.new(surf.handle);
 
         try Seat.setup();
 
@@ -472,9 +472,9 @@ pub const Wayland = struct {
     }
 
     pub fn create_surface(self: Wayland, instance: c.VkInstance) !c.VkSurfaceKHR {
-        var s: c.VkSurfaceKHR = undefined;
+        var s: c.VkSurfaceKHR       = undefined;
         const vkGetInstanceProcAddr = try _platform.get_instance_procaddr(instance);
-        vkCreateWaylandSurfaceKHR = @as(c.PFN_vkCreateWaylandSurfaceKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkCreateWaylandSurfaceKHR"))) orelse return error.FunctionNotFound;
+        vkCreateWaylandSurfaceKHR   = @as(c.PFN_vkCreateWaylandSurfaceKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkCreateWaylandSurfaceKHR"))) orelse return error.FunctionNotFound;
 
         if (vkCreateWaylandSurfaceKHR(
             instance,
