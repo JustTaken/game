@@ -40,7 +40,7 @@ pub const GraphicsPipeline = struct {
         size_each: u32,
 
         const Pool = struct {
-            handle:                c.VkDescriptorPool,
+           handle:                c.VkDescriptorPool,
             descriptor_sets:       ArrayList(c.VkDescriptorSet),
             descriptor_set_layout: c.VkDescriptorSetLayout,
 
@@ -83,7 +83,8 @@ pub const GraphicsPipeline = struct {
                     return e;
                 };
 
-                // defer allocator.free(descriptor_sets);
+                defer allocator.free(descriptor_sets);
+                const len = self.descriptor_sets.items.len;
 
                 self.descriptor_sets.push_slice(descriptor_sets) catch |e| {
                     logger.log(.Error, "Failed to insert element in descriptor sets array", .{});
@@ -91,7 +92,7 @@ pub const GraphicsPipeline = struct {
                     return e;
                 };
 
-                return descriptor_sets;
+                return self.descriptor_sets.items[len..descriptor_sets.len + len];
             }
 
             fn destroy(self: *Pool, device: Device) void {

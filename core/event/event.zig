@@ -12,6 +12,7 @@ const logger       = _config.Configuration.logger;
 pub const EventSystem = struct {
     state:  State,
     events: []Event,
+    allocator: Allocator,
 
     pub const Event = struct {
         emiters:   ArrayList(Emiter),
@@ -64,6 +65,11 @@ pub const EventSystem = struct {
                 if(self.listeners.items[i].listen(argument)) break;
             }
         }
+
+        fn deinit(self :*Event) void {
+            self.emiters.deinit();
+            self.listeners.deinit();
+        }
     };
 
     pub const Argument = union {
@@ -91,8 +97,9 @@ pub const EventSystem = struct {
         }
 
         return .{
-            .state  = .Running,
-            .events = events,
+            .state     = .Running,
+            .events    = events,
+            .allocator = allocator,
         };
     }
 
@@ -125,5 +132,13 @@ pub const EventSystem = struct {
         }
 
         self.events[code].listen(argument);
+    }
+
+    pub fn shutdown(self: *EventSystem) void {
+        for (self.events) |*event| {
+            event.deinit();
+        }
+
+        self.allocator.free(self.events);
     }
 };

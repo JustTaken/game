@@ -42,8 +42,6 @@ pub fn Application(comptime compositor: Compositor, comptime renderer: Renderer)
                 return e;
             };
 
-            logger.log(.Info, "Application successfully initialized", .{});
-
             return .{
                 .container    = container,
                 .backend      = backend,
@@ -129,6 +127,8 @@ pub fn Application(comptime compositor: Compositor, comptime renderer: Renderer)
         }
 
         pub fn shutdown(self: *Self) void {
+            self.backend.sync();
+            self.event_system.shutdown();
             self.container.shutdown();
             self.backend.shutdown();
         }

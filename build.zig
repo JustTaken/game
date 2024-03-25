@@ -2,9 +2,7 @@ const std = @import("std");
 
 pub fn build(builder: *std.Build) void {
     const target = builder.standardTargetOptions(.{});
-    const optimize = builder.standardOptimizeOption(.{
-        .preferred_optimize_mode = .ReleaseSmall
-    });
+    const optimize = builder.standardOptimizeOption(.{});
 
     const core = builder.addModule("core", .{
         .root_source_file = .{ .path = "core/lib.zig" },
@@ -24,8 +22,8 @@ pub fn build(builder: *std.Build) void {
         .optimize = optimize,
     });
 
-    wayland_scan(builder, "private-code", "bin/include/xdg-shell.c");
-    wayland_scan(builder, "client-header", "bin/include/xdg-shell.h");
+    scan_wayland_xml(builder, "private-code", "bin/include/xdg-shell.c");
+    scan_wayland_xml(builder, "client-header", "bin/include/xdg-shell.h");
 
     add_shader(builder, "vert");
     add_shader(builder, "frag");
@@ -55,7 +53,7 @@ pub fn build(builder: *std.Build) void {
     test_step.dependOn(&run_test.step);
 }
 
-fn wayland_scan(builder: *std.Build, flag: []const u8, output: []const u8) void {
+fn scan_wayland_xml(builder: *std.Build, flag: []const u8, output: []const u8) void {
     const scanner = builder.addSystemCommand(&.{"wayland-scanner"});
 
     scanner.addArgs(&.{ flag, "outputs/out/include/xdg-shell.xml" });

@@ -4,7 +4,7 @@ const _io            = @import("../io/io.zig");
 const _collections   = @import("../collections/collections.zig");
 const _configuration = @import("../util/configuration.zig");
 const _math          = @import("../math/math.zig");
-const _object      = @import("object.zig");
+const _object        = @import("object.zig");
 
 const Vec            = _math.Vec;
 
@@ -17,6 +17,7 @@ const logger         = _configuration.Configuration.logger;
 pub const TrueTypeFont = struct {
     glyphs:    ArrayList(Glyph),
     tables:    []Table,
+    map_table: Cmap,
     header:    Header,
     allocator: Allocator,
     path:      []const u8,
@@ -45,8 +46,6 @@ pub const TrueTypeFont = struct {
     const Glyph = struct {
         vertex:       ArrayList(Vec),
         index:        ArrayList(u16),
-        // contour_ends: ArrayList(u16),
-        // points:       ArrayList(Point),
         x_min:        i16,
         y_min:        i16,
         x_max:        i16,
@@ -165,12 +164,20 @@ pub const TrueTypeFont = struct {
                     break :blk @as(f32, @floatFromInt(values[1])) * factor;
                 };
 
-                try index.push(@intCast(vertex.items.len));
-                try vertex.push(.{
-                    .x = points.items[k].x,
-                    .y = points.items[k].y,
-                    .z = 0.0,
-                });
+                if (points.items[k].on_curve) {
+                    try vertex.push(.{
+                        .x = points.items[k].x,
+                        .y = points.items[k].y,
+                        .z = 0.0,
+                    });
+                }
+            }
+
+            for (1..vertex.items.len - 1) |k| {
+                const ii: u16 = @intCast(k);
+                try index.push(ii);
+                try index.push(0);
+                try index.push(ii + 1);
             }
 
             return .{
@@ -178,8 +185,6 @@ pub const TrueTypeFont = struct {
                 .y_min        = glyph_points[2],
                 .x_max        = glyph_points[3],
                 .y_max        = glyph_points[4],
-                // .contour_ends = contour_ends,
-                // .points       = points,
                 .vertex       = vertex,
                 .index        = index,
             };
@@ -224,14 +229,6 @@ pub const TrueTypeFont = struct {
                 return try simple(points, reader, factor, allocator);
             }
         }
-
-        // fn deinit(self: *Glyph) void {
-        //     // self.points.deinit();
-        //     // self.contour_ends.deinit();
-        //     self.vertex.deinit();
-        //     self.index.deinit();
-
-        // }
     };
 
     const Header = struct {
@@ -295,105 +292,131 @@ pub const TrueTypeFont = struct {
             };
         }
     };
-    const Cmap4 = struct {
-        fn get_indices(reader: Reader, char: u8, allocator: Allocator) !u32 {
-            const length = convert(&try reader.read(2));
-            _ = length;
-            const language = convert(&try reader.read(2));
-            _ = language;
+
+    pub const Cmap = struct {
+        end_code:        ArrayList(u32),
+        start_code:      ArrayList(u32),
+        id_delta:        ArrayList(i16),
+        glyph_id:        ArrayList(u32),
+        format:          u8,
+
+        fn format4(reader: Reader, allocator: Allocator) !Cmap {
+            const length        = convert(&try reader.read(2));
+            const language      = convert(&try reader.read(2));
             const segment_count = convert(&try reader.read(2)) / 2;
 
+            _ = length;
+            _ = language;
+
             _ = convert(&try reader.read(2));
             _ = convert(&try reader.read(2));
             _ = convert(&try reader.read(2));
 
-            const end_code = try allocator.alloc(u32, segment_count);
-            defer allocator.free(end_code);
+            var end_code        = try ArrayList(u32).init(allocator, segment_count);
+            var start_code      = try ArrayList(u32).init(allocator, segment_count);
+            var id_delta        = try ArrayList(i16).init(allocator, segment_count);
+            var glyph_id        = try ArrayList(u32).init(allocator, segment_count);
 
-            const start_code = try allocator.alloc(u32, segment_count);
-            defer allocator.free(start_code);
-
-            const id_delta = try allocator.alloc(i16, segment_count);
-            defer allocator.free(id_delta);
-
-            const id_range_offset = try allocator.alloc(u32, segment_count);
-            defer allocator.free(id_range_offset);
-
-            for (0..segment_count) |j| { end_code[j] = convert(&try reader.read(2)); }
+            for (0..segment_count) |_| { try end_code.push(convert(&try reader.read(2))); }
             if (convert(&try reader.read(2)) != 0) return error.ReservedPadNotZero;
-            for (0..segment_count) |j| { start_code[j] = convert(&try reader.read(2)); }
-            for (0..segment_count) |j| { id_delta[j] = @bitCast(@as(u16, @intCast(convert(&try reader.read(2))))); }
-            for (0..segment_count) |j| {
+            for (0..segment_count) |_| { try start_code.push(convert(&try reader.read(2))); }
+            for (0..segment_count) |_| { try id_delta.push(@bitCast(@as(u16, @intCast(convert(&try reader.read(2)))))); }
+            for (0..segment_count) |_| {
                 const range_offset = convert(&try reader.read(2));
+
                 if (range_offset != 0) {
-                    id_range_offset[j] = @as(u32, @intCast(reader.pos())) - 2 + range_offset;
+                    try glyph_id.push(@as(u32, @intCast(reader.pos())) - 2 + range_offset);
                 } else {
-                    id_range_offset[j] = 0;
+                    try glyph_id.push(0);
                 }
             }
 
-            for (0..segment_count) |j| {
-                if (start_code[j] <= char and end_code[j] >= char) {
-                    const index = blk: {
-                        if (id_range_offset[j] != 0) {
-                            const index_offset = id_range_offset[j] + 2 * (char - start_code[j]);
-                            reader.seek(index_offset);
-                            break :blk convert(&try reader.read(2));
-
-                        } else {
-                            break :blk @as(u32, @intCast(id_delta[j] + char));
-                        }
-                    };
-
-                    return index;
-                }
-            }
-
-            return error.GlyphNotFound;
+            return .{
+                .format          = 4,
+                .start_code      = start_code,
+                .end_code        = end_code,
+                .id_delta        = id_delta,
+                .glyph_id        = glyph_id,
+            };
         }
-    };
 
-    const Cmap12 = struct {
-        fn get_indices(reader: Reader, char: u8, allocator: Allocator) !u32 {
+        fn format12(reader: Reader, allocator: Allocator) !Cmap {
             if (convert(&try reader.read(2)) != 0) return error.ReservedPadNotZero;
 
             const length = convert(&try reader.read(4));
-            _ = length;
             const language = convert(&try reader.read(4));
+
+            _ = length;
             _ = language;
 
             const group_count = convert(&try reader.read(4));
 
-            var start_char_code_array = try ArrayList(u32).init(allocator, group_count);
-            defer start_char_code_array.deinit();
+            var start_code = try ArrayList(u32).init(allocator, group_count);
+            var end_code   = try ArrayList(u32).init(allocator, group_count);
+            var glyph_code = try ArrayList(u32).init(allocator, group_count);
 
-            var end_char_code_array = try ArrayList(u32).init(allocator, group_count);
-            defer end_char_code_array.deinit();
+            for (0..group_count) |_| {
+                try start_code.push(convert(&try reader.read(4)));
+                try end_code.push(convert(&try reader.read(4)));
+                try glyph_code.push(convert(&try reader.read(4)));
+            }
 
-            var start_glyph_code_array = try ArrayList(u32).init(allocator, group_count);
-            defer start_glyph_code_array.deinit();
+            return .{
+                .format     = 12,
+                .start_code = start_code,
+                .end_code   = end_code,
+                .glyph_id   = glyph_code,
+                .id_delta   = try ArrayList(i16).init(allocator, 0),
+            };
+        }
 
-            for (0..group_count) |k| {
-                try start_char_code_array.push(convert(&try reader.read(4)));
-                try end_char_code_array.push(convert(&try reader.read(4)));
-                try start_glyph_code_array.push(convert(&try reader.read(4)));
+        fn get_index(self: Cmap, reader: Reader, char: u8) !u32 {
+            if (self.format == 4) {
+                for (0..self.start_code.items.len) |j| {
+                    if (self.start_code.items[j] <= char and self.end_code.items[j] >= char) {
+                        const index = blk: {
+                            if (self.glyph_id.items[j] != 0) {
+                                const index_offset = self.glyph_id.items[j] + 2 * (char - self.start_code.items[j]);
 
-                if (start_char_code_array.items[k] <= char and end_char_code_array.items[k] >= char) {
-                    const index_offset = char - start_char_code_array.items[k];
-                    return start_glyph_code_array.items[k] + index_offset;
+                                reader.seek(index_offset);
+                                break :blk convert(&try reader.read(2));
+                            } else {
+                                break :blk @as(u32, @intCast(self.id_delta.items[j] + char));
+                            }
+                        };
+
+                        return index;
+                    }
+                }
+            } else {
+                for (0..self.start_code.items.len) |i| {
+                    if (self.start_code.items[i] <= char and self.end_code.items[i] >= char) {
+                        const index_offset = char - self.start_code.items[i];
+                        return self.glyph_id.items[i] + index_offset;
+                    }
                 }
             }
 
-            // for (0..group_count) |k| {
-            //     if (start_char_code_array.items[k] <= chars[i] and end_char_code_array.items[k] >= chars[i]) {
-            //         const index_offset = chars[i] - start_char_code_array.items[k];
-            //         indices[i] = start_glyph_code_array.items[k] + index_offset;
-            //     }
-            // }
+            return error.GlyphIndexNotFound;
+        }
 
+        fn new(reader: Reader, allocator: Allocator) !Cmap {
+            const format = convert(&try reader.read(2));
 
-            // return indices;
-            return error.GlyphNotFound;
+            if (format == 4) {
+                return try format4(reader, allocator);
+            } else if (format == 12) {
+                return try format12(reader, allocator);
+            }
+
+            return error.FormatNotSupported;
+        }
+
+        fn deinit(self: *Cmap) void {
+            self.id_delta.deinit();
+            self.start_code.deinit();
+            self.end_code.deinit();
+            self.glyph_id.deinit();
         }
     };
 
@@ -445,18 +468,18 @@ pub const TrueTypeFont = struct {
             return e;
         };
 
+        defer reader.shutdown();
+
         var header: Header    = undefined;
         var glyphs_count: u32 = undefined;
+        var map_table: Cmap   = undefined;
 
-        // const count: u32      = @intCast(chars.len);
-        // _ = count;
         const scalar_type     = convert(&try reader.read(4));
         const num_tables      = convert(&try reader.read(2));
         const search_range    = convert(&try reader.read(2));
         const entry_selector  = convert(&try reader.read(2));
         const range_shift     = convert(&try reader.read(2));
 
-        // var indices: [chars.len]u32 = undefined;
         var tables = allocator.alloc(Table, @typeInfo(Table.Type).Enum.fields.len) catch |e| {
             logger.log(.Error, "Out of memory", .{});
 
@@ -482,59 +505,40 @@ pub const TrueTypeFont = struct {
                     reader.seek(table.offset + 4);
                     glyphs_count = convert(&try reader.read(2));
                 },
-                // .Map => {
-                //     reader.seek(table.offset);
-                //     const version = convert(&try reader.read(2));
-                //     _ = version;
-                //     const number_subtables = convert(&try reader.read(2));
+                .Map => {
+                    reader.seek(table.offset);
 
-                //     const table_pos = reader.pos();
-                //     for (0..number_subtables) |i| {
-                //         reader.seek(table_pos + 8 * i);
+                    const version = convert(&try reader.read(2));
+                    const number_subtables = convert(&try reader.read(2));
+                    const table_pos = reader.pos();
 
-                //         const id = convert(&try reader.read(2));
-                //         const specific_id = convert(&try reader.read(2));
-                //         const offset = convert(&try reader.read(4));
+                    _ = version;
 
-                //        if (specific_id != 0 and specific_id != 4 and specific_id != 3) continue;
-                //         if (id != 0) continue;
+                    for (0..number_subtables) |i| {
+                        reader.seek(table_pos + 8 * i);
 
-                //         reader.seek(table.offset + offset);
-                //         const format = convert(&try reader.read(2));
+                        const id          = convert(&try reader.read(2));
+                        const specific_id = convert(&try reader.read(2));
+                        const offset      = convert(&try reader.read(4));
 
-                //         indices = switch (format) {
-                //             4    => try Cmap4.get_indices(reader, chars, allocator),
-                //             12   => try Cmap12.get_indices(reader, chars, allocator),
-                //             else => continue,
-                //         };
+                       if (specific_id != 0 and specific_id != 4 and specific_id != 3) continue;
+                        if (id != 0) continue;
 
-                //         break;
-                //     }
-                // },
+                        reader.seek(table.offset + offset);
+                        map_table = Cmap.new(reader, allocator) catch continue;
+                        break;
+                    }
+                },
                 else => {}
             }
         }
 
-        // var objects = try allocator.allo(Object, chars.len);
         const glyphs = try ArrayList(Glyph).init(allocator, 1);
-
-
-        // for (indices, 0..) |k, i| {
-        //     const glyph = try Glyph.new(tables, reader, header, size, allocator, k);
-
-        //     objects[i] = .{
-        //         .vertex = glyph.vertex,
-        //         .index = glyph.index,
-        //     };
-        //     try glyphs.push(Glyph.new(tables, reader, header, size, allocator, k) catch {
-        //         logger.log(.Error, "Wrong glyph bytes content", .{});
-        //         continue;
-        //     });
-        // }
 
         return .{
             .header         = header,
             .tables         = tables,
+            .map_table      = map_table,
             .glyphs         = glyphs,
             .num_tables     = num_tables,
             .scalar_type    = scalar_type,
@@ -554,42 +558,16 @@ pub const TrueTypeFont = struct {
             return e;
         };
 
-        const map_table = self.tables[@intFromEnum(Table.Type.Map)];
-        reader.seek(map_table.offset);
-        const version = convert(&try reader.read(2));
-        _ = version;
-        const number_subtables = convert(&try reader.read(2));
+        defer reader.shutdown();
 
-        const table_pos = reader.pos();
-        for (0..number_subtables) |i| {
-            reader.seek(table_pos + 8 * i);
+        const index = try self.map_table.get_index(reader, c);
+        const glyph = try Glyph.new(self.tables, reader, self.header, self.allocator, index);
+        try self.glyphs.push(glyph);
 
-            const id = convert(&try reader.read(2));
-            const specific_id = convert(&try reader.read(2));
-            const offset = convert(&try reader.read(4));
-
-           if (specific_id != 0 and specific_id != 4 and specific_id != 3) continue;
-            if (id != 0) continue;
-
-            reader.seek(map_table.offset + offset);
-            const format = convert(&try reader.read(2));
-
-            const index = switch (format) {
-                4    => try Cmap4.get_indices(reader, c, self.allocator),
-                12   => try Cmap12.get_indices(reader, c, self.allocator),
-                else => continue,
-            };
-
-            const glyph = try Glyph.new(self.tables, reader, self.header, self.allocator, index);
-            try self.glyphs.push(glyph);
-
-            return .{
-                .vertex = glyph.vertex,
-                .index = glyph.index,
-            };
-        }
-
-        return error.GlyphNotFound;
+        return .{
+            .vertex = glyph.vertex,
+            .index  = glyph.index,
+        };
     }
 
 
@@ -616,6 +594,7 @@ pub const TrueTypeFont = struct {
         //     self.glyphs.items[i].deinit();
         // }
 
+        self.map_table.deinit();
         self.glyphs.deinit();
         self.allocator.free(self.tables);
     }

@@ -18,6 +18,8 @@ pub const Mesh = struct {
 
     pub fn new(typ: Type, allocator: Allocator) !Object {
         const path           = try std.mem.concat(allocator, u8, &.{"assets/objects/", @tagName(typ), ".obj"});
+        defer allocator.free(path);
+
         var file             = try std.fs.cwd().openFile(path, .{});
         defer file.close();
 

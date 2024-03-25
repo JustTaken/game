@@ -100,7 +100,7 @@ pub const Container = struct {
             try self.add_object(.{
                 .model = Matrix.translate(1.0, 0.0, 0.0),
                 .color = Matrix.scale(0.0, 1.0, 1.0),
-                .typ = .a,
+                .typ = .m,
                 .id = undefined,
             });
         }

@@ -76,11 +76,14 @@ pub const Swapchain = struct {
             }
         };
 
-        const uniques_queue_family_index = Device.Queue.uniques(&.{ device.queues[0].family, device.queues[1].family }, allocator) catch |e| {
+        var uniques_queue_family_index = Device.Queue.uniques(&.{ device.queues[0].family, device.queues[1].family }, allocator) catch |e| {
             logger.log(.Error, "Failed to get uniques queue family index list", .{});
 
             return e;
         };
+
+        // defer allocator.free(uniques_queue_family_index);
+        defer uniques_queue_family_index.deinit();
 
         const handle = device.create_swapchain(.{
             .sType                 = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
@@ -294,11 +297,13 @@ pub const Swapchain = struct {
             }
         };
 
-        const uniques_queue_family_index = Device.Queue.uniques(&.{ device.queues[0].family, device.queues[1].family }, self.allocator) catch |e| {
+        var uniques_queue_family_index = Device.Queue.uniques(&.{ device.queues[0].family, device.queues[1].family }, self.allocator) catch |e| {
             logger.log(.Error, "Failed to get uniques queue family index list", .{});
 
             return e;
         };
+
+        defer uniques_queue_family_index.deinit();
 
         const old_swapchain = self.handle;
         self.handle = device.create_swapchain(.{

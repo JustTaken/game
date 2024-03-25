@@ -343,7 +343,7 @@ pub const Data = struct {
                 device.cmd_copy_buffer(command_buffers[0], staging_buffer.handle, buffer, .{
                     .srcOffset = 0,
                     .dstOffset = 0,
-                    .size = @sizeOf(T) * config.len,
+                    .size      = @sizeOf(T) * config.len,
                 });
 
                 try device.end_command_buffer(command_buffers[0]);
@@ -391,7 +391,7 @@ pub const Data = struct {
                 switch (update.change) {
                     .model => self.models[k].items.items[object.id].mapped.model = object.model,
                     .color => self.models[k].items.items[object.id].mapped.color = object.color,
-                    .new => {
+                    .new   => {
                         container.objects.items[update.id].id = try self.models[k].add_item(device, descriptor, self.allocator,
                         .{
                             .model = object.model,
@@ -417,6 +417,8 @@ pub const Data = struct {
         for (self.models) |*model| {
             model.destroy(device);
         }
+
+        self.allocator.free(self.models);
     }
 
     pub fn new(device: Device, descriptor: *Descriptor, allocator: Allocator) !Data {
