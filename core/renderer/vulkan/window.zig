@@ -14,7 +14,6 @@ const Argument      = _event.EventSystem.Argument;
 
 const c             = _platform.c;
 const configuration = _config.Configuration;
-const logger        = configuration.logger;
 
 pub const Window = struct {
     surface: c.VkSurfaceKHR,

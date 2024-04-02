@@ -78,4 +78,3 @@ pub fn ArrayList(comptime T: type) type {
         }
     };
 }
-

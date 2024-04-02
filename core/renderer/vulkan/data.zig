@@ -25,7 +25,6 @@ const Object             = ObjectHandler.Object;
 const ObjectType         = ObjectHandler.Type;
 
 const c                  = _platform.c;
-const logger             = _configuration.Configuration.logger;
 
 pub const Data = struct {
     global: Global,
@@ -220,7 +219,7 @@ pub const Data = struct {
 
             const items = try ArrayList(Item).init(allocator, 1);
             const len: u32 = @intCast(object.index.items.len);
-            try object.deinit();
+            object.deinit();
 
             return .{
                 .index  = index,
@@ -282,14 +281,11 @@ pub const Data = struct {
 
             const memory_requirements = device.get_buffer_memory_requirements(buffer);
 
-            const index = blk: for (0..device.memory_properties.memoryTypeCount) |i| {
+            const index = for (0..device.memory_properties.memoryTypeCount) |i| {
                 if ((memory_requirements.memoryTypeBits & (@as(u32, @intCast(1)) << @as(u5, @intCast(i)))) != 0 and (device.memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
-                    break :blk i;
+                    break i;
                 }
-            } else {
-                logger.log(.Error, "Could not find memory type that suit the need of buffer allocation", .{});
-                return error.NoMemoryRequirementsPassed;
-            };
+            } else return error.NoMemoryRequirementsPassed;
 
             const memory = try device.allocate_memory(.{
                 .sType           = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
@@ -306,33 +302,23 @@ pub const Data = struct {
                     .allocator       = config.allocator,
                 });
 
-
                 try device.map_memory(staging_buffer.memory, T, config.len, @ptrCast(&dst));
 
                 @memcpy(@as([*]T, @ptrCast(@alignCast(dst))), b.items);
                 device.unmap_memory(staging_buffer.memory);
 
-                const command_pool = device.create_command_pool(.{
+                const command_pool = try device.create_command_pool(.{
                     .sType            = c.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
                     .flags            = c.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
                     .queueFamilyIndex = device.queues[0].family,
-                }) catch |e| {
-                    logger.log(.Error, "Failed to create command pool", .{});
+                });
 
-                    return e;
-                };
-
-                const command_buffers = device.allocate_command_buffers(config.allocator, .{
+                const command_buffers = try device.allocate_command_buffers(config.allocator, .{
                     .sType              = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
                     .level              = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
                     .commandPool        = command_pool,
                     .commandBufferCount = 1,
-                }) catch |e| {
-                    logger.log(.Error, "Failed to allocate command buffer", .{});
-
-                    return e;
-                };
-
+                });
                 defer config.allocator.free(command_buffers);
 
                 try device.begin_command_buffer(command_buffers[0], .{

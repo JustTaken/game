@@ -5,10 +5,10 @@ const _config       = @import("../util/configuration.zig");
 const _event        = @import("../event/event.zig");
 const _platform     = @import("../platform/platform.zig");
 
+const KeyMap        = _platform.KeyMap;
 const EventSystem   = _event.EventSystem;
 const Argument      = EventSystem.Argument;
 const Listener      = EventSystem.Event.Listener;
-const KeyMap        = _platform.KeyMap;
 
 const Vec           = _math.Vec;
 const Matrix        = _math.Matrix;
@@ -24,11 +24,7 @@ pub const Camera = struct {
     clicking: bool = false,
     aspect:   f32,
 
-    const Direction = enum {
-        X,
-        Y,
-        Z,
-    };
+    const Direction = enum { X, Y, Z };
 
     const y_rotation: [4][4]f32 = .{
         [4]f32 {   0.0, 0.0, 1.0, 0.0 },
@@ -40,6 +36,7 @@ pub const Camera = struct {
     const fov:  f32 = std.math.pi * 0.25;
     const near: f32 = 0.10;
     const far:  f32 = 10.0;
+
     pub fn init(eye: Vec) Camera {
         const right_vec: Vec = .{.x = 1.0, .y =   0.0, .z = 0.0};
         const up_vec:    Vec = .{.x = 0.0, .y = - 1.0, .z = 0.0};

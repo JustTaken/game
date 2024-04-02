@@ -25,7 +25,6 @@ const GraphicsPipeline   = _graphics_pipeline.GraphicsPipeline;
 const Container          = _container.Container;
 const Allocator          = std.mem.Allocator;
 const Platform           = _platform.Platform;
-const logger             = _config.Configuration.logger;
 
 pub const Vulkan = struct {
     sync:              Sync,
@@ -38,48 +37,14 @@ pub const Vulkan = struct {
     graphics_pipeline: GraphicsPipeline,
 
     pub fn new(comptime P: type, platform: P, allocator: Allocator) !Vulkan {
-        const instance = Instance.new(P) catch |e| {
-            logger.log(.Error, "Failed to create instance", .{});
-            return e;
-        };
-
-        const window = Window.new(platform.create_surface(instance.handle) catch |e| {
-                logger.log(.Error, "Failed to create surface", .{});
-                return e;
-            }) catch |e| {
-            logger.log(.Error, "Failed to create window", .{});
-            return e;
-        };
-
-        const device = Device.new(instance, window.surface, allocator) catch |e| {
-            logger.log(.Error, "Failed to create device", .{});
-            return e;
-        };
-
-        var graphics_pipeline = GraphicsPipeline.new(device, instance, window, allocator) catch |e| {
-            logger.log(.Error, "Failed to create graphics_pipeline", .{});
-            return e;
-        };
-
-        const swapchain = Swapchain.new(device, allocator, instance, window, graphics_pipeline) catch |e| {
-            logger.log(.Error, "Failed to create swapchain", .{});
-            return e;
-        };
-
-        const sync = Sync.new(device) catch |e| {
-            logger.log(.Error, "Failed to create sync objects", .{});
-            return e;
-        };
-
-        const data = Data.new(device, &graphics_pipeline.descriptor, allocator) catch |e| {
-            logger.log(.Error, "Failed to create objects data", .{});
-            return e;
-        };
-
-        const command_pool = CommandPool.new(device, swapchain) catch |e| {
-            logger.log(.Error, "Failed to create command pool", .{});
-            return e;
-        };
+        const instance = try Instance.new(P);
+        const window = try Window.new(try platform.create_surface(instance.handle));
+        const device = try Device.new(instance, window.surface, allocator);
+        var graphics_pipeline = try GraphicsPipeline.new(device, instance, window, allocator);
+        const swapchain = try Swapchain.new(device, allocator, instance, window, graphics_pipeline);
+        const sync = try Sync.new(device);
+        const data = try Data.new(device, &graphics_pipeline.descriptor, allocator);
+        const command_pool = try CommandPool.new(device, swapchain);
 
         return .{
             .sync              = sync,
@@ -101,16 +66,12 @@ pub const Vulkan = struct {
         const scene_changed = container.updates.items.len > 0 or container.camera.changed;
 
         if (scene_changed) {
-            self.data.register_changes(
+            try self.data.register_changes(
                 self.device,
                 &self.graphics_pipeline.descriptor,
                 &self.command_pool,
                 container
-            ) catch |e| {
-                logger.log(.Error, "Failed to register changes in frame", .{});
-
-                return e;
-            };
+            );
         }
 
         if (self.window.resized or scene_changed or self.swapchain.force_redraw) {
@@ -120,8 +81,7 @@ pub const Vulkan = struct {
                 &self.command_pool,
                 self.data,
                 &self.sync
-            ) or self.window.resized
-            ) {
+            ) or self.window.resized) {
                 try self.swapchain.recreate(
                     self.device,
                     self.instance,

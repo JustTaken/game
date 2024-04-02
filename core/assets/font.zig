@@ -12,7 +12,6 @@ const ArrayList      = _collections.ArrayList;
 const Allocator      = std.mem.Allocator;
 const Reader         = _io.Io.Reader;
 const Object         = _object.ObjectHandler.Object;
-const logger         = _configuration.Configuration.logger;
 
 pub const TrueTypeFont = struct {
     glyphs:    ArrayList(Glyph),
@@ -32,7 +31,7 @@ pub const TrueTypeFont = struct {
         a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z,
         space, comma, coulon, semi_coulon,
 
-        pub fn indice(self: Type) u8 {
+        pub fn code(self: Type) u8 {
             return switch (self) {
                 .space => ' ',
                 .comma => ',',
@@ -44,12 +43,12 @@ pub const TrueTypeFont = struct {
     };
 
     const Glyph = struct {
-        vertex:       ArrayList(Vec),
-        index:        ArrayList(u16),
-        x_min:        i16,
-        y_min:        i16,
-        x_max:        i16,
-        y_max:        i16,
+        vertex: ArrayList(Vec),
+        index:  ArrayList(u16),
+        x_min:  i16,
+        y_min:  i16,
+        x_max:  i16,
+        y_max:  i16,
 
         const Point = struct {
             x:        f32 = 0,
@@ -68,12 +67,7 @@ pub const TrueTypeFont = struct {
             const x_delta:   u8 = 0x10;
             const y_delta:   u8 = 0x20;
 
-            var contour_ends = ArrayList(u16).init(allocator, number_of_contours) catch |e| {
-                logger.log(.Error, "Failed to initlize array list of countours", .{});
-
-                return e;
-            };
-
+            var contour_ends = try ArrayList(u16).init(allocator, number_of_contours);
             defer contour_ends.deinit();
 
             var max: u32 = 0;
@@ -84,23 +78,14 @@ pub const TrueTypeFont = struct {
                     max = contour_end;
                 }
 
-                contour_ends.push(@intCast(contour_end)) catch |e| {
-                    logger.log(.Error, "Array list refuses to receive one more item", .{});
-                    return e;
-                };
+                try contour_ends.push(@intCast(contour_end));
             }
 
-            var flags = ArrayList(u8).init(allocator, max + 1) catch |e| {
-                logger.log(.Error, "Failed to initlize array list of flags", .{});
-                return e;
-            };
+            var flags = try ArrayList(u8).init(allocator, max + 1);
 
             defer flags.deinit();
 
-            var points = ArrayList(Point).init(allocator, max + 1) catch |e| {
-                logger.log(.Error, "Failed to initlize array list of points", .{});
-                return e;
-            };
+            var points = try ArrayList(Point).init(allocator, max + 1);
 
             defer points.deinit();
 
@@ -462,11 +447,7 @@ pub const TrueTypeFont = struct {
     };
 
     pub fn new(file_path: []const u8, allocator: Allocator) !TrueTypeFont {
-        const reader = Reader.new(file_path) catch |e| {
-            logger.log(.Error, "Failed to get the reader of file: {s}", .{file_path});
-
-            return e;
-        };
+        const reader = try Reader.new(file_path);
 
         defer reader.shutdown();
 
@@ -480,12 +461,7 @@ pub const TrueTypeFont = struct {
         const entry_selector  = convert(&try reader.read(2));
         const range_shift     = convert(&try reader.read(2));
 
-        var tables = allocator.alloc(Table, @typeInfo(Table.Type).Enum.fields.len) catch |e| {
-            logger.log(.Error, "Out of memory", .{});
-
-            return e;
-        };
-
+        var tables = try allocator.alloc(Table, @typeInfo(Table.Type).Enum.fields.len);
         const pos = reader.pos();
 
         for (0..num_tables) |k| {
@@ -551,12 +527,8 @@ pub const TrueTypeFont = struct {
     }
 
     pub fn glyph_object(self: *TrueTypeFont, typ: Type) !Object {
-        const c = typ.indice();
-        const reader = Reader.new(self.path) catch |e| {
-            logger.log(.Error, "Failed to get the reader of file: {s}", .{self.path});
-
-            return e;
-        };
+        const c = typ.code();
+        const reader = try Reader.new(self.path);
 
         defer reader.shutdown();
 
@@ -569,7 +541,6 @@ pub const TrueTypeFont = struct {
             .index  = glyph.index,
         };
     }
-
 
     fn get_date(slice: [8]u8) u64 {
         var array1: [4]u8 = undefined;
@@ -590,13 +561,8 @@ pub const TrueTypeFont = struct {
     }
 
     pub fn deinit(self: *TrueTypeFont) void {
-        // for (0..self.glyphs.items.len) |i| {
-        //     self.glyphs.items[i].deinit();
-        // }
-
         self.map_table.deinit();
         self.glyphs.deinit();
         self.allocator.free(self.tables);
     }
 };
-

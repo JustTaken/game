@@ -14,7 +14,6 @@ const dlsym = std.c.dlsym;
 const _config  = @import("../util/configuration.zig");
 const _event   = @import("../event/event.zig");
 
-const logger   = _config.Configuration.logger;
 const Emiter   = _event.EventSystem.Event.Emiter;
 
 pub fn Platform(comptime compositor: Compositor) type {
@@ -128,11 +127,11 @@ pub const KeyMap = enum(u8) {
 };
 
 pub const Compositor = enum {
-    Wayland,
+    wayland,
 
     fn get(comptime compositor: Compositor) type {
         return switch (compositor) {
-            .Wayland => @import("wayland.zig").Wayland,
+            .wayland => @import("wayland.zig").Wayland,
         };
     }
 };
@@ -149,9 +148,9 @@ pub fn get_instance_function() !vkCreateInstance {
     return @as(c.PFN_vkCreateInstance, @ptrCast(dlsym(vulkan, "vkCreateInstance"))) orelse return error.vkCreateInstanceNotFound;
 }
 
-pub fn get_instance_procaddr(instance: c.VkInstance) !vkGetInstanceProcAddr {
+pub fn get_instance_procaddr() !vkGetInstanceProcAddr {
     GetInstanceProcAddr = @as(c.PFN_vkGetInstanceProcAddr, @ptrCast(dlsym(vulkan, "vkGetInstanceProcAddr"))) orelse return error.FunctionNotFound;
-    return @as(c.PFN_vkGetInstanceProcAddr, @ptrCast(GetInstanceProcAddr(instance, "vkGetInstanceProcAddr"))) orelse return error.FunctionNotFound;
+    return GetInstanceProcAddr;
 }
 
 pub fn get_device_procaddr(instance: c.VkInstance) !vkGetDeviceProcAddr {

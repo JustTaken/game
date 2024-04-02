@@ -7,8 +7,6 @@ const State        = _config.State;
 const ArrayList    = _collections.ArrayList;
 const Allocator    = std.mem.Allocator;
 
-const logger       = _config.Configuration.logger;
-
 pub const EventSystem = struct {
     state:  State,
     events: []Event,
@@ -124,13 +122,6 @@ pub const EventSystem = struct {
 
     fn fire(self: *EventSystem, event_type: Event.Type, argument: Argument) void {
         const code = @intFromEnum(event_type);
-
-        if (self.events.len <= code) {
-            logger.log(.Error, "Event for code '{}' not found", .{code});
-
-            return;
-        }
-
         self.events[code].listen(argument);
     }
 

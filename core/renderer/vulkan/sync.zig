@@ -54,14 +54,8 @@ pub const Sync = struct {
 
     pub fn update(self: *Sync, device: Device) void {
         if (self.changed) {
-            device.wait_for_fences(&self.in_flight_fence) catch {
-                logger.log(.Error, "CPU did not wait for draw call", .{});
-            };
-
-            device.reset_fences(&self.in_flight_fence) catch {
-                logger.log(.Error, "Failed to reset CPU fence", .{});
-            };
-
+            device.wait_for_fences(&self.in_flight_fence) catch {};
+            device.reset_fences(&self.in_flight_fence) catch {};
             self.changed = false;
         }
 

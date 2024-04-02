@@ -20,7 +20,7 @@ pub const ObjectHandler = struct {
         index:  ArrayList(u16),
         vertex: ArrayList(Vec),
 
-        pub fn deinit(self: *Object) !void {
+        pub fn deinit(self: *Object) void {
             self.index.deinit();
             self.vertex.deinit();
         }

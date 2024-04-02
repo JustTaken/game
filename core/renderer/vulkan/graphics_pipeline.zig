@@ -23,7 +23,6 @@ const Allocator      = std.mem.Allocator;
 
 const c              = _platform.c;
 const configuration  = _config.Configuration;
-const logger         = configuration.logger;
 
 pub const GraphicsPipeline = struct {
     handle:       c.VkPipeline,
@@ -72,25 +71,17 @@ pub const GraphicsPipeline = struct {
 
                 @memset(layouts, self.descriptor_set_layout);
 
-                const descriptor_sets = device.allocate_descriptor_sets(.{
+                const descriptor_sets = try device.allocate_descriptor_sets(.{
                     .sType              = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
                     .descriptorPool     = self.handle,
                     .descriptorSetCount = count,
                     .pSetLayouts        = layouts.ptr,
-                }, allocator) catch |e| {
-                    logger.log(.Error, "Failed to create descriptor sets", .{});
-
-                    return e;
-                };
+                }, allocator);
 
                 defer allocator.free(descriptor_sets);
                 const len = self.descriptor_sets.items.len;
 
-                self.descriptor_sets.push_slice(descriptor_sets) catch |e| {
-                    logger.log(.Error, "Failed to insert element in descriptor sets array", .{});
-
-                    return e;
-                };
+                try self.descriptor_sets.push_slice(descriptor_sets);
 
                 return self.descriptor_sets.items[len..descriptor_sets.len + len];
             }
@@ -147,43 +138,27 @@ pub const GraphicsPipeline = struct {
     };
 
     pub fn new(device: Device, instance: Instance, window: Window, allocator: Allocator) !GraphicsPipeline {
-        const vert_code = Io.read_file("assets/shader/vert.spv", allocator) catch |e| {
-            logger.log(.Error, "Could not read vertex shader byte code", .{});
-
-            return e;
-        };
+        const vert_code = try Io.read_file("assets/shader/vert.spv", allocator);
 
         defer allocator.free(vert_code);
 
-        const frag_code = Io.read_file("assets/shader/frag.spv", allocator) catch |e| {
-            logger.log(.Error, "Could not read fragment shader byte code", .{});
-
-            return e;
-        };
+        const frag_code = try Io.read_file("assets/shader/frag.spv", allocator);
 
         defer allocator.free(frag_code);
 
-        const vert_module = device.create_shader_module(.{
+        const vert_module = try device.create_shader_module(.{
             .sType    = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
             .pCode    = @as([*]const u32, @ptrCast(@alignCast(vert_code))),
             .codeSize = vert_code.len,
-        }) catch |e| {
-            logger.log(.Error, "Failed to create vertex shader module", .{});
-
-            return e;
-        };
+        });
 
         defer device.destroy_shader_module(vert_module);
 
-        const frag_module = device.create_shader_module(.{
+        const frag_module = try device.create_shader_module(.{
             .sType    = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
             .codeSize = frag_code.len,
             .pCode    = @as([*]const u32, @ptrCast(@alignCast(frag_code))),
-        }) catch |e| {
-            logger.log(.Error, "Failed to create fragment shader module", .{});
-
-            return e;
-        };
+        });
 
         defer device.destroy_shader_module(frag_module);
 
@@ -309,43 +284,25 @@ pub const GraphicsPipeline = struct {
             }
         });
 
-        const layout = device.create_pipeline_layout(.{
+        const layout = try device.create_pipeline_layout(.{
             .sType                  = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
             .pSetLayouts            = &[_] c.VkDescriptorSetLayout {descriptor_set_layout, descriptor_set_layout},
             .setLayoutCount         = 2,
             .pushConstantRangeCount = 0,
             .pPushConstantRanges    = null,
-        }) catch |e| {
-            logger.log(.Error, "Failed to create pipeline layout", .{});
+        });
 
-            return e;
-        };
-
-        var descriptor = Descriptor.new(16, allocator) catch |e| {
-            logger.log(.Error, "Failed to create descriptor pool handle", .{});
-
-            return e;
-        };
+        var descriptor = try Descriptor.new(16, allocator);
 
         _ = try descriptor.add_layout(descriptor_set_layout);
 
-        const formats = instance.get_physical_device_surface_formats(device.physical_device, window.surface, allocator) catch |e| {
-            logger.log(.Error, "Failed to list surface formats", .{});
-
-            return e;
-        };
+        const formats = try instance.get_physical_device_surface_formats(device.physical_device, window.surface, allocator);
 
         defer allocator.free(formats);
 
-        const format = blk: for (formats) |format| {
-            if (format.format == c.VK_FORMAT_B8G8R8A8_SRGB and format.colorSpace == c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-                break :blk format;
-            }
-        } else {
-            logger.log(.Warn, "Could not find a good surface format falling back to first in list", .{});
-
-            break :blk formats[0];
-        };
+        const format = for (formats) |format| {
+            if (format.format == c.VK_FORMAT_B8G8R8A8_SRGB and format.colorSpace == c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) break format;
+        } else formats[0];
 
         const depth_formats = [_] c.VkFormat {
             c.VK_FORMAT_D32_SFLOAT,
@@ -359,13 +316,9 @@ pub const GraphicsPipeline = struct {
             if ((format_properties.linearTilingFeatures & flags) == flags or (format_properties.optimalTilingFeatures & flags) == flags) {
                 break :blk candidate;
             }
-        } else {
-            logger.log(.Error, "Failed to find suitable depth format", .{});
+        } else return error.DepthFormat;
 
-            return error.DepthFormat;
-        };
-
-        const render_pass = device.create_render_pass(.{
+        const render_pass = try device.create_render_pass(.{
             .sType           = c.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
             .attachmentCount = 2,
             .pAttachments    = &[_] c.VkAttachmentDescription {
@@ -412,13 +365,9 @@ pub const GraphicsPipeline = struct {
                 .dstStageMask  = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
                 .dstAccessMask = c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | c.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
             },
-        }) catch |e| {
-            logger.log(.Error, "Failed to create render pass", .{});
+        });
 
-            return e;
-        };
-
-        const handle = device.create_graphics_pipeline(.{
+        const handle = try device.create_graphics_pipeline(.{
             .sType               = c.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
             .stageCount          = shader_stage_infos.len,
             .pStages             = shader_stage_infos.ptr,
@@ -434,11 +383,7 @@ pub const GraphicsPipeline = struct {
             .renderPass          = render_pass,
             .subpass             = 0,
             .basePipelineHandle  = null,
-        }) catch |e| {
-            logger.log(.Error, "Failed to create graphics pipeline", .{});
-
-            return e;
-        };
+        });
 
         return .{
             .handle       = handle,

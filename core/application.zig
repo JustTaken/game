@@ -13,6 +13,7 @@ const Platform       = _platform.Platform;
 const Compositor     = _platform.Compositor;
 const Container      = _container.Container;
 
+const Allocator      = std.mem.Allocator;
 const logger         = _configuration.Configuration.logger;
 
 pub fn Application(comptime compositor: Compositor, comptime renderer: Renderer) type {
@@ -23,24 +24,10 @@ pub fn Application(comptime compositor: Compositor, comptime renderer: Renderer)
 
         const Self = @This();
 
-        pub fn new(allocator: std.mem.Allocator) !Self {
-            const container: Container = Container.new(allocator) catch |e| {
-                logger.log(.Fatal, "Could not create container instance", .{});
-
-                return e;
-            };
-
-            const event_system: EventSystem = EventSystem.new(allocator) catch |e| {
-                logger.log(.Fatal, "Could not create event handle system", .{});
-
-                return e;
-            };
-
-            const backend: Backend(compositor, renderer) = Backend(compositor, renderer).new(allocator) catch |e| {
-                logger.log(.Fatal, "Failed to initialize backend", .{});
-
-                return e;
-            };
+        pub fn new(allocator: Allocator) !Self {
+            const container:    Container = try Container.new(allocator);
+            const backend:      Backend(compositor, renderer) = try Backend(compositor, renderer).new(allocator);
+            const event_system: EventSystem = try EventSystem.new(allocator);
 
             return .{
                 .container    = container,
@@ -49,51 +36,19 @@ pub fn Application(comptime compositor: Compositor, comptime renderer: Renderer)
             };
         }
 
-        pub fn run(self: *Self) void {
-            self.event_system.add_listener(self.container.resize_listener(), .WindowResize) catch {
-                logger.log(.Fatal,"Failed to register camera in resize window event system", .{});
-                return;
-            };
+        pub fn run(self: *Self) !void {
+            defer self.shutdown();
 
-            self.event_system.add_listener(self.container.mouse_listener(), .MouseMove) catch {
-                logger.log(.Fatal,"Failed to register camera in mouse event system", .{});
-                return;
-            };
+            try self.event_system.add_listener(self.container.resize_listener(), .WindowResize);
+            try self.event_system.add_listener(self.container.mouse_listener(), .MouseMove);
+            try self.event_system.add_listener(self.container.click_listener(), .MouseClick);
+            try self.event_system.add_listener(self.container.keyboard_listener(), .KeyPress);
+            try self.event_system.add_listener(self.backend.renderer.window.listener(), .WindowResize);
 
-            self.event_system.add_listener(self.container.click_listener(), .MouseClick) catch {
-                logger.log(.Fatal, "Failed to register camera in mouse click system", .{});
-                return;
-            };
-
-            self.event_system.add_listener(self.container.keyboard_listener(), .KeyPress) catch {
-                logger.log(.Fatal,"Failed to register object handle in keyboard event system", .{});
-                return;
-            };
-
-            self.event_system.add_listener(self.backend.renderer.window.listener(), .WindowResize) catch {
-                logger.log(.Fatal, "Failed to register window as window resize listener", .{});
-                return;
-            };
-
-            self.backend.platform.register_keyboard_emiter(self.event_system.add_emiter(.KeyPress, false) catch {
-                logger.log(.Fatal, "Failed to register keyboard emiter", .{});
-                return;
-            });
-
-            self.backend.platform.register_mouse_emiter(self.event_system.add_emiter(.MouseMove, true) catch {
-                logger.log(.Fatal, "Failed to register mouse movement emiter", .{});
-                return;
-            });
-
-            self.backend.platform.register_click_emiter(self.event_system.add_emiter(.MouseClick, true) catch {
-                logger.log(.Fatal, "Failed to register mouse click emiter", .{});
-                return;
-            });
-
-            self.backend.platform.register_window_resize_emiter(self.event_system.add_emiter(.WindowResize, true) catch {
-                logger.log(.Fatal, "Failed to register window resize emiter", .{});
-                return;
-            });
+            self.backend.platform.register_keyboard_emiter(try self.event_system.add_emiter(.KeyPress, false));
+            self.backend.platform.register_mouse_emiter(try self.event_system.add_emiter(.MouseMove, true));
+            self.backend.platform.register_click_emiter(try self.event_system.add_emiter(.MouseClick, true));
+            self.backend.platform.register_window_resize_emiter(try self.event_system.add_emiter(.WindowResize, true));
 
             while (self.event_system.state != .Closing) {
                 self.backend.sync();
@@ -101,29 +56,15 @@ pub fn Application(comptime compositor: Compositor, comptime renderer: Renderer)
                 if (self.event_system.state != .Suspended) {
                     self.backend.draw(&self.container) catch |e| {
                         switch (e) {
-                            error.CloseDisplay => {
-                                self.event_system.state = .Closing;
-                                logger.log(.Info, "Closing Application", .{});
-                            },
-                            else => {
-                                logger.log(.Fatal, "Unrecoverable problem occoured on frame draw", .{});
-                                break;
-                            }
+                            error.CloseDisplay => self.event_system.state = .Closing,
+                            else => return e,
                         }
-
-                        break;
                     };
 
                     self.event_system.input();
-
-                    self.container.update() catch {
-                        logger.log(.Fatal, "Unrecoverable problem on frame update", .{});
-                        break;
-                    };
+                    try self.container.update();
                 }
             }
-
-            self.shutdown();
         }
 
         pub fn shutdown(self: *Self) void {

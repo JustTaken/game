@@ -19,7 +19,6 @@ const ArenaAllocator     = std.heap.ArenaAllocator;
 
 const c                  = _platform.c;
 const configuration      = _config.Configuration;
-const logger             = configuration.logger;
 
 pub const CommandPool = struct {
     handle: c.VkCommandPool,
@@ -102,29 +101,21 @@ pub const CommandPool = struct {
         var arena = ArenaAllocator.init(std.heap.page_allocator);
         const allocator = arena.allocator();
 
-        const handle = device.create_command_pool(.{
+        const handle = try device.create_command_pool(.{
             .sType = c.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
             .flags = c.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
             .queueFamilyIndex = device.queues[0].family,
-        }) catch |e| {
-            logger.log(.Error, "Failed to create command pool", .{});
-
-            return e;
-        };
+        });
 
         const count: u32 = @intCast(swapchain.framebuffers.items.len);
         var buffers      = try ArrayList(Buffer).init(allocator, count);
 
-        const bs         = device.allocate_command_buffers(allocator, .{
+        const bs         = try device.allocate_command_buffers(allocator, .{
             .sType              = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
             .commandPool        = handle,
             .level              = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
             .commandBufferCount = count,
-        }) catch |e| {
-            logger.log(.Error, "Failed to allocate command buffer", .{});
-
-            return e;
-        };
+        });
 
         for (0..count) |i| {
             try buffers.push(.{

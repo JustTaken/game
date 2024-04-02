@@ -15,8 +15,6 @@ const Platform       = _platform.Platform;
 
 const Allocator      = std.mem.Allocator;
 
-const logger         = _configuration.Configuration.logger;
-
 pub fn Backend(comptime compositor: Compositor, comptime renderer: Renderer) type {
     return struct {
         renderer: T,
@@ -28,18 +26,8 @@ pub fn Backend(comptime compositor: Compositor, comptime renderer: Renderer) typ
         pub const P = Platform(compositor);
 
         pub fn new(allocator: Allocator) !Self {
-            const platform = P.init() catch |e| {
-                logger.log(.Error, "Could not initialize platform", .{});
-
-                return e;
-            };
-
-
-            const backend_renderer = T.new(P, platform, allocator) catch |e| {
-                logger.log(.Error, "Failed to initialize renderer", .{});
-
-                return e;
-            };
+            const platform = try P.init();
+            const backend_renderer = try T.new(P, platform, allocator);
 
             return .{
                 .renderer = backend_renderer,
@@ -71,11 +59,11 @@ pub fn Backend(comptime compositor: Compositor, comptime renderer: Renderer) typ
 }
 
 pub const Renderer = enum {
-    Vulkan,
+    vulkan,
 
     fn get(self: Renderer) type {
         return switch (self) {
-            .Vulkan => Vulkan,
+            .vulkan => Vulkan,
         };
     }
 };

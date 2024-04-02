@@ -473,7 +473,7 @@ pub const Wayland = struct {
 
     pub fn create_surface(self: Wayland, instance: c.VkInstance) !c.VkSurfaceKHR {
         var s: c.VkSurfaceKHR       = undefined;
-        const vkGetInstanceProcAddr = try _platform.get_instance_procaddr(instance);
+        const vkGetInstanceProcAddr = try _platform.get_instance_procaddr();
         vkCreateWaylandSurfaceKHR   = @as(c.PFN_vkCreateWaylandSurfaceKHR, @ptrCast(vkGetInstanceProcAddr(instance, "vkCreateWaylandSurfaceKHR"))) orelse return error.FunctionNotFound;
 
         if (vkCreateWaylandSurfaceKHR(

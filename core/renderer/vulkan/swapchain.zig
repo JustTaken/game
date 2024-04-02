@@ -51,41 +51,22 @@ pub const Swapchain = struct {
         graphics_pipeline: GraphicsPipeline
     ) !Swapchain {
         const present_mode = c.VK_PRESENT_MODE_FIFO_KHR;
-        const capabilities = instance.get_physical_device_surface_capabilities(device.physical_device, window.surface) catch |e| {
-            logger.log(.Error, "Could not access physical device capabilities", .{});
+        const capabilities = try instance.get_physical_device_surface_capabilities(device.physical_device, window.surface);
 
-            return e;
+        const extent = if (capabilities.currentExtent.width != 0xFFFFFFFF) capabilities.currentExtent
+        else c.VkExtent2D {
+            .width  = std.math.clamp(window.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
+            .height = std.math.clamp(window.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height),
         };
 
-        const extent = blk: {
-            if (capabilities.currentExtent.width != 0xFFFFFFFF) {
-                break :blk capabilities.currentExtent;
-            } else {
-                break :blk c.VkExtent2D {
-                    .width  = std.math.clamp(window.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
-                    .height = std.math.clamp(window.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height),
-                };
-            }
-        };
+        const image_count =
+            if (capabilities.maxImageCount > 0) @min(capabilities.minImageCount + 1, capabilities.maxImageCount)
+            else capabilities.minImageCount + 1;
 
-        const image_count = blk: {
-            if (capabilities.maxImageCount > 0 and capabilities.minImageCount + 1 > capabilities.maxImageCount) {
-                break :blk capabilities.maxImageCount;
-            } else {
-                break :blk capabilities.minImageCount + 1;
-            }
-        };
-
-        var uniques_queue_family_index = Device.Queue.uniques(&.{ device.queues[0].family, device.queues[1].family }, allocator) catch |e| {
-            logger.log(.Error, "Failed to get uniques queue family index list", .{});
-
-            return e;
-        };
-
-        // defer allocator.free(uniques_queue_family_index);
+        var uniques_queue_family_index = try Device.Queue.uniques(&.{ device.queues[0].family, device.queues[1].family }, allocator);
         defer uniques_queue_family_index.deinit();
 
-        const handle = device.create_swapchain(.{
+        const handle = try device.create_swapchain(.{
             .sType                 = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
             .surface               = window.surface,
             .minImageCount         = image_count,
@@ -102,28 +83,15 @@ pub const Swapchain = struct {
             .queueFamilyIndexCount = @as(u32, @intCast(uniques_queue_family_index.items.len)),
             .pQueueFamilyIndices   = uniques_queue_family_index.items.ptr,
             .oldSwapchain          = null,
-        }) catch |e| {
-            logger.log(.Error, "Failed to create sawpchain", .{});
+        });
 
-            return e;
-        };
-
-        var images = device.get_swapchain_images(handle, allocator) catch |e| {
-            logger.log(.Error, "Failed to get swapchain images", .{});
-
-            return e;
-        };
-
+        var images = try device.get_swapchain_images(handle, allocator);
         defer images.deinit();
 
-        var image_views = ArrayList(c.VkImageView).init(allocator, @intCast(image_count)) catch |e| {
-            logger.log(.Error, "Could not allocate image views array", .{});
-
-            return e;
-        };
+        var image_views = try ArrayList(c.VkImageView).init(allocator, @intCast(image_count));
 
         for (images.items) |image| {
-            image_views.push(device.create_image_view(.{
+            try image_views.push(try device.create_image_view(.{
                 .sType            = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
                 .image            = image,
                 .format           = graphics_pipeline.format.format,
@@ -141,18 +109,10 @@ pub const Swapchain = struct {
                     .b = c.VK_COMPONENT_SWIZZLE_IDENTITY,
                     .a = c.VK_COMPONENT_SWIZZLE_IDENTITY,
                 },
-            }) catch |e| {
-                logger.log(.Error, "Failed to get image view from image", .{});
-
-                return e;
-            }) catch |e| {
-                logger.log(.Error, "Failed to insert element in image views", .{});
-
-                return e;
-            };
+            }));
         }
 
-        const depth_image = device.create_image(.{
+        const depth_image = try device.create_image(.{
             .sType         = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .imageType     = c.VK_IMAGE_TYPE_2D,
             .extent        = .{
@@ -168,40 +128,24 @@ pub const Swapchain = struct {
             .usage         = c.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
             .samples       = c.VK_SAMPLE_COUNT_1_BIT,
             .sharingMode   = c.VK_SHARING_MODE_EXCLUSIVE,
-        }) catch |e| {
-            logger.log(.Error, "Failed to create image depth", .{});
-
-            return e;
-        };
+        });
 
         const image_memory_requirements = device.get_image_memory_requirements(depth_image);
-        const memory_index = blk: for (0..device.memory_properties.memoryTypeCount) |i| {
+        const memory_index = for (0..device.memory_properties.memoryTypeCount) |i| {
             if ((image_memory_requirements.memoryTypeBits & (@as(u32, @intCast(1)) << @as(u5, @intCast(i)))) != 0 and (device.memory_properties.memoryTypes[i].propertyFlags & c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) == c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
-                break :blk i;
+                break i;
             }
-        } else {
-            logger.log(.Error, "Could not find memory type that suit the need of buffer allocation", .{});
+        } else return error.NoMemoryRequirementsPassed;
 
-            return error.NoMemoryRequirementsPassed;
-        };
-
-        const depth_image_memory = device.allocate_memory(.{
+        const depth_image_memory = try device.allocate_memory(.{
             .sType           = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
             .allocationSize  = image_memory_requirements.size,
             .memoryTypeIndex = @intCast(memory_index),
-        }) catch |e| {
-            logger.log(.Error, "Failed to allocate depth image memory", .{});
+        });
 
-            return e;
-        };
+        try device.bind_image_memory(depth_image, depth_image_memory);
 
-        device.bind_image_memory(depth_image, depth_image_memory) catch |e| {
-            logger.log(.Error, "Failed to bind depth image memory", .{});
-
-            return e;
-        };
-
-        const depth_image_view = device.create_image_view(.{
+        const depth_image_view = try device.create_image_view(.{
             .sType            = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
             .image            = depth_image,
             .viewType         = c.VK_IMAGE_VIEW_TYPE_2D,
@@ -213,20 +157,12 @@ pub const Swapchain = struct {
                 .baseArrayLayer = 0,
                 .layerCount     = 1,
             },
-        }) catch |e| {
-            logger.log(.Error, "Failed to create depth image view", .{});
+        });
 
-            return e;
-        };
-
-        var framebuffers = ArrayList(c.VkFramebuffer).init(allocator, @intCast(image_count)) catch {
-            logger.log(.Error, "Failed to create framebuffers array",  .{});
-
-            return error.OutOfMemory;
-        };
+        var framebuffers = try ArrayList(c.VkFramebuffer).init(allocator, @intCast(image_count));
 
         for (0..image_count) |i| {
-            try framebuffers.push(device.create_framebuffer(.{
+            try framebuffers.push(try device.create_framebuffer(.{
                 .sType           = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
                 .renderPass      = graphics_pipeline.render_pass,
                 .attachmentCount = 2,
@@ -234,11 +170,7 @@ pub const Swapchain = struct {
                 .width           = extent.width,
                 .height          = extent.height,
                 .layers          = 1,
-            }) catch |e| {
-                logger.log(.Error, "Failed to crate frambuffer", .{});
-
-                return e;
-            });
+            }));
         }
 
         return .{
@@ -272,41 +204,22 @@ pub const Swapchain = struct {
         }
 
         const present_mode = c.VK_PRESENT_MODE_FIFO_KHR;
-        const capabilities = instance.get_physical_device_surface_capabilities(device.physical_device, window.surface) catch |e| {
-            logger.log(.Error, "Could not access physical device capabilities", .{});
+        const capabilities = try instance.get_physical_device_surface_capabilities(device.physical_device, window.surface);
 
-            return e;
+        self.extent = if (capabilities.currentExtent.width != 0xFFFFFFFF) capabilities.currentExtent
+        else .{
+            .width  = std.math.clamp(window.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
+            .height = std.math.clamp(window.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height),
         };
 
-        self.extent = blk: {
-            if (capabilities.currentExtent.width != 0xFFFFFFFF) {
-                break :blk capabilities.currentExtent;
-            } else {
-                break :blk .{
-                    .width  = std.math.clamp(window.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
-                    .height = std.math.clamp(window.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height),
-                };
-            }
-        };
+        const image_count = if (capabilities.maxImageCount > 0 and capabilities.minImageCount + 1 > capabilities.maxImageCount) capabilities.maxImageCount
+        else capabilities.minImageCount + 1;
 
-        const image_count = blk: {
-            if (capabilities.maxImageCount > 0 and capabilities.minImageCount + 1 > capabilities.maxImageCount) {
-                break :blk capabilities.maxImageCount;
-            } else {
-                break :blk capabilities.minImageCount + 1;
-            }
-        };
-
-        var uniques_queue_family_index = Device.Queue.uniques(&.{ device.queues[0].family, device.queues[1].family }, self.allocator) catch |e| {
-            logger.log(.Error, "Failed to get uniques queue family index list", .{});
-
-            return e;
-        };
-
+        var uniques_queue_family_index = try Device.Queue.uniques(&.{ device.queues[0].family, device.queues[1].family }, self.allocator);
         defer uniques_queue_family_index.deinit();
 
         const old_swapchain = self.handle;
-        self.handle = device.create_swapchain(.{
+        self.handle = try device.create_swapchain(.{
             .sType                 = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
             .surface               = window.surface,
             .minImageCount         = image_count,
@@ -323,24 +236,15 @@ pub const Swapchain = struct {
             .queueFamilyIndexCount = @as(u32, @intCast(uniques_queue_family_index.items.len)),
             .pQueueFamilyIndices   = uniques_queue_family_index.items.ptr,
             .oldSwapchain          = old_swapchain,
-        }) catch |e| {
-            logger.log(.Error, "Failed to create sawpchain", .{});
-
-            return e;
-        };
+        });
 
         device.destroy_swapchain(old_swapchain);
 
-        var images = device.get_swapchain_images(self.handle, self.allocator) catch |e| {
-            logger.log(.Error, "Failed to get swapchain images", .{});
-
-            return e;
-        };
-
+        var images = try device.get_swapchain_images(self.handle, self.allocator);
         defer images.deinit();
 
         for (images.items, 0..) |image, i| {
-            self.image_views.items[i] = device.create_image_view(.{
+            self.image_views.items[i] = try device.create_image_view(.{
                 .sType            = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
                 .image            = image,
                 .format           = pipeline.format.format,
@@ -358,14 +262,10 @@ pub const Swapchain = struct {
                     .b = c.VK_COMPONENT_SWIZZLE_IDENTITY,
                     .a = c.VK_COMPONENT_SWIZZLE_IDENTITY,
                 },
-            }) catch |e| {
-                logger.log(.Error, "Failed to get image view from image", .{});
-
-                return e;
-            };
+            });
         }
 
-        self.depth_image = device.create_image(.{
+        self.depth_image = try device.create_image(.{
             .sType     = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .imageType = c.VK_IMAGE_TYPE_2D,
             .extent    = .{
@@ -381,40 +281,24 @@ pub const Swapchain = struct {
             .usage         = c.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
             .samples       = c.VK_SAMPLE_COUNT_1_BIT,
             .sharingMode   = c.VK_SHARING_MODE_EXCLUSIVE,
-        }) catch |e| {
-            logger.log(.Error, "Failed to create image depth", .{});
-
-            return e;
-        };
+        });
 
         const image_memory_requirements = device.get_image_memory_requirements(self.depth_image);
-        const memory_index = blk: for (0..device.memory_properties.memoryTypeCount) |i| {
+        const memory_index = for (0..device.memory_properties.memoryTypeCount) |i| {
             if ((image_memory_requirements.memoryTypeBits & (@as(u32, @intCast(1)) << @as(u5, @intCast(i)))) != 0 and (device.memory_properties.memoryTypes[i].propertyFlags & c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) == c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
-                break :blk i;
+                break i;
             }
-        } else {
-            logger.log(.Error, "Could not find memory type that suit the need of buffer allocation", .{});
+        } else return error.NoMemoryRequirementsPassed;
 
-            return error.NoMemoryRequirementsPassed;
-        };
-
-        self.depth_image_memory = device.allocate_memory(.{
+        self.depth_image_memory = try device.allocate_memory(.{
             .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
             .allocationSize = image_memory_requirements.size,
             .memoryTypeIndex = @intCast(memory_index),
-        }) catch |e| {
-            logger.log(.Error, "Failed to allocate depth image memory", .{});
+        });
 
-            return e;
-        };
+        try device.bind_image_memory(self.depth_image, self.depth_image_memory);
 
-        device.bind_image_memory(self.depth_image, self.depth_image_memory) catch |e| {
-            logger.log(.Error, "Failed to bind depth image memory", .{});
-
-            return e;
-        };
-
-        self.depth_image_view = device.create_image_view(.{
+        self.depth_image_view = try device.create_image_view(.{
             .sType            = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
             .image            = self.depth_image,
             .viewType         = c.VK_IMAGE_VIEW_TYPE_2D,
@@ -426,14 +310,10 @@ pub const Swapchain = struct {
                 .baseArrayLayer = 0,
                 .layerCount     = 1,
             },
-        }) catch |e| {
-            logger.log(.Error, "Failed to create depth image view", .{});
-
-            return e;
-        };
+        });
 
         for (0..image_count) |i| {
-            self.framebuffers.items[i] = device.create_framebuffer(.{
+            self.framebuffers.items[i] = try device.create_framebuffer(.{
                 .sType           = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
                 .renderPass      = pipeline.render_pass,
                 .attachmentCount = 2,
@@ -441,12 +321,7 @@ pub const Swapchain = struct {
                 .width           = self.extent.width,
                 .height          = self.extent.height,
                 .layers          = 1,
-            }) catch |e| {
-                logger.log(.Error, "Failed to crate frambuffer", .{});
-
-                return e;
-            };
-
+            });
         }
 
         self.force_redraw = true;
@@ -468,12 +343,8 @@ pub const Swapchain = struct {
         sync:         *Sync,
     ) !bool {
         self.draw_frame(device, pipeline, command_pool, data, sync.*) catch |e| {
-            if(e == Result.SuboptimalKhr or e == Result.OutOfDateKhr) {
-
-                return true;
-            } else {
-                return e;
-            }
+            if(e == Result.SuboptimalKhr or e == Result.OutOfDateKhr) return true
+            else return e;
         };
 
         return false;
@@ -489,9 +360,7 @@ pub const Swapchain = struct {
     ) !void {
         const image_index = try self.acquire_next_image(device, sync);
 
-        if (!(command_pool.buffers.items[image_index].is_valid)) {
-            try command_pool.buffers.items[image_index].record(device, pipeline, self, data);
-        }
+        if (!(command_pool.buffers.items[image_index].is_valid)) try command_pool.buffers.items[image_index].record(device, pipeline, self, data);
 
         try device.queue_submit(sync.in_flight_fence, .{
             .sType                = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
