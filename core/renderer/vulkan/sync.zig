@@ -22,7 +22,7 @@ pub const Sync = struct {
     in_flight_fence: c.VkFence,
     timer:           Timer,
     nanos_per_frame: u32,
-    changed:         bool = false,
+    changed:         bool = true,
 
     pub const default: u32 = @intCast(1000000000 / 60);
 

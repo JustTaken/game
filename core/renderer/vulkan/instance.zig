@@ -10,6 +10,8 @@ const check         = _error.check;
 const c             = _platform.c;
 const configuration = _config.Configuration;
 
+const validation_layers: []const []const u8 = &[_][]const u8 { "VK_LAYER_KHRONOS_validation" };
+
 pub const Instance = struct {
     handle: c.VkInstance,
 
@@ -21,6 +23,8 @@ pub const Instance = struct {
             .sType                   = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
             .enabledExtensionCount   = @as(u32, @intCast(platform.Extensions.len)),
             .ppEnabledExtensionNames = platform.Extensions.ptr,
+            .enabledLayerCount       = 1,
+            .ppEnabledLayerNames     = &&validation_layers[0][0],
             .pApplicationInfo        = &.{
                 .sType              = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
                 .pApplicationName   = @as([*:0]const u8, @ptrCast(configuration.application_name)),

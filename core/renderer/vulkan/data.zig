@@ -194,7 +194,7 @@ pub const Data = struct {
             const Index = @TypeOf(object.index.items[0]);
             const index = try Buffer.new(device, Index, object.index,
                 .{
-                    .usage      = c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                    .usage      = c.VK_BUFFER_USAGE_TRANSFER_DST_BIT | c.VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                     .properties = c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                     .allocator  = allocator,
                     .len        = object.index.items.len,
@@ -344,6 +344,7 @@ pub const Data = struct {
                 device.free_command_buffer(command_pool, command_buffers[0]);
                 device.destroy_buffer(staging_buffer.handle);
                 device.free_memory(staging_buffer.memory);
+                device.destroy_command_pool(command_pool);
             }
 
             return .{

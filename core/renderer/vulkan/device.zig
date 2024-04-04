@@ -143,6 +143,7 @@ pub const Device = struct {
 
         for (families.items, 0..) |family, i| {
             queue_create_infos[i] = .{
+                .sType            = c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
                 .queueFamilyIndex = family,
                 .queueCount       = 1,
                 .pQueuePriorities = &[_]f32{1.0},
@@ -367,69 +368,56 @@ pub const Device = struct {
         try check(vkQueuePresentKHR(self.queues[1].handle, &info));
     }
 
-    pub fn queue_wait_idle(self: Device, queue: c.VkQueue) !void {
-        _ = self;
+    pub fn queue_wait_idle(_: Device, queue: c.VkQueue) !void {
         try check(vkQueueWaitIdle(queue));
     }
 
-    pub fn begin_command_buffer(self: Device, command_buffer: c.VkCommandBuffer, info: c.VkCommandBufferBeginInfo) !void {
-        _ = self;
+    pub fn begin_command_buffer(_: Device, command_buffer: c.VkCommandBuffer, info: c.VkCommandBufferBeginInfo) !void {
         try check(vkBeginCommandBuffer(command_buffer, &info));
     }
 
-    pub fn cmd_begin_render_pass(self: Device, command_buffer: c.VkCommandBuffer, info: c.VkRenderPassBeginInfo) void {
-        _ = self;
+    pub fn cmd_begin_render_pass(_: Device, command_buffer: c.VkCommandBuffer, info: c.VkRenderPassBeginInfo) void {
         vkCmdBeginRenderPass(command_buffer, &info, c.VK_SUBPASS_CONTENTS_INLINE);
     }
 
-    pub fn cmd_bind_pipeline(self: Device, command_buffer: c.VkCommandBuffer, pipeline: c.VkPipeline) void {
-        _ = self;
+    pub fn cmd_bind_pipeline(_: Device, command_buffer: c.VkCommandBuffer, pipeline: c.VkPipeline) void {
         vkCmdBindPipeline(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     }
 
-    pub fn cmd_bind_vertex_buffer(self: Device, command_buffer: c.VkCommandBuffer, buffer: c.VkBuffer) void {
-        _ = self;
+    pub fn cmd_bind_vertex_buffer(_: Device, command_buffer: c.VkCommandBuffer, buffer: c.VkBuffer) void {
         vkCmdBindVertexBuffers(command_buffer, 0, 1, &buffer, &0);
     }
 
-    pub fn cmd_bind_index_buffer(self: Device, command_buffer: c.VkCommandBuffer, buffer: c.VkBuffer) void {
-        _ = self;
+    pub fn cmd_bind_index_buffer(_: Device, command_buffer: c.VkCommandBuffer, buffer: c.VkBuffer) void {
         vkCmdBindIndexBuffer(command_buffer, buffer, 0, c.VK_INDEX_TYPE_UINT16);
     }
 
-    pub fn cmd_set_viewport(self: Device, command_buffer: c.VkCommandBuffer, viewport: c.VkViewport) void {
-        _ = self;
+    pub fn cmd_set_viewport(_: Device, command_buffer: c.VkCommandBuffer, viewport: c.VkViewport) void {
         vkCmdSetViewport(command_buffer, 0, 1, &viewport);
     }
 
-    pub fn cmd_set_scissor(self: Device, command_buffer: c.VkCommandBuffer, scissor: c.VkRect2D) void {
-        _ = self;
+    pub fn cmd_set_scissor(_: Device, command_buffer: c.VkCommandBuffer, scissor: c.VkRect2D) void {
         vkCmdSetScissor(command_buffer, 0, 1, &scissor);
     }
 
-    pub fn cmd_copy_buffer(self: Device, command_buffer: c.VkCommandBuffer, src: c.VkBuffer, dst: c.VkBuffer, copy: c.VkBufferCopy) void {
-        _ = self;
+    pub fn cmd_copy_buffer(_: Device, command_buffer: c.VkCommandBuffer, src: c.VkBuffer, dst: c.VkBuffer, copy: c.VkBufferCopy) void {
         vkCmdCopyBuffer(command_buffer, src, dst, 1, &copy);
     }
 
-    pub fn cmd_draw(self: Device, command_buffer: c.VkCommandBuffer, size: u32) void {
-        _ = self;
+    pub fn cmd_draw(_: Device, command_buffer: c.VkCommandBuffer, size: u32) void {
         vkCmdDraw(command_buffer, size, 1, 0, 0);
     }
 
-    pub fn cmd_draw_indexed(self: Device, command_buffer: c.VkCommandBuffer, size: u32) void {
-        _ = self;
+    pub fn cmd_draw_indexed(_: Device, command_buffer: c.VkCommandBuffer, size: u32) void {
         vkCmdDrawIndexed(command_buffer, size, 1, 0, 0, 0);
     }
 
-    pub fn cmd_bind_descriptor_sets(self: Device, command_buffer: c.VkCommandBuffer, layout: c.VkPipelineLayout, first: u32, count: u32, descriptor_sets: []const c.VkDescriptorSet, offsets: ?[]const u32) void {
-        _ = self;
+    pub fn cmd_bind_descriptor_sets(_: Device, command_buffer: c.VkCommandBuffer, layout: c.VkPipelineLayout, first: u32, count: u32, descriptor_sets: []const c.VkDescriptorSet, offsets: ?[]const u32) void {
         const len: u32 = if (offsets) |o| @as(u32, @intCast(o.len)) else 0;
         vkCmdBindDescriptorSets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, layout, first, count, descriptor_sets.ptr, len, @ptrCast(offsets));
     }
 
-    pub fn cmd_push_constants(self: Device, command_buffer: c.VkCommandBuffer, layout: c.VkPipelineLayout, offset: u32, size: u32, value: ?*const anyopaque) void {
-        _ = self;
+    pub fn cmd_push_constants(_: Device, command_buffer: c.VkCommandBuffer, layout: c.VkPipelineLayout, offset: u32, size: u32, value: ?*const anyopaque) void {
         vkCmdPushConstants(command_buffer, layout, c.VK_SHADER_STAGE_VERTEX_BIT, offset, size, value);
     }
 
@@ -437,18 +425,15 @@ pub const Device = struct {
         vkUpdateDescriptorSets(self.handle, 1, &write, 0, null);
     }
 
-    pub fn end_render_pass(self: Device, command_buffer: c.VkCommandBuffer) void {
-        _ = self;
+    pub fn end_render_pass(_: Device, command_buffer: c.VkCommandBuffer) void {
         vkCmdEndRenderPass(command_buffer);
     }
 
-    pub fn end_command_buffer(self: Device, command_buffer: c.VkCommandBuffer) !void {
-        _ = self;
+    pub fn end_command_buffer(_: Device, command_buffer: c.VkCommandBuffer) !void {
         try check(vkEndCommandBuffer(command_buffer));
     }
 
-    pub fn reset_command_buffer(self: Device, command_buffer: c.VkCommandBuffer) !void {
-        _ = self;
+    pub fn reset_command_buffer(_: Device, command_buffer: c.VkCommandBuffer) !void {
         try check(vkResetCommandBuffer(command_buffer, 0));
     }
 
@@ -487,6 +472,7 @@ pub const Device = struct {
     pub fn destroy_image(self: Device, image: c.VkImage) void {
         vkDestroyImage(self.handle, image, null);
     }
+
     pub fn destroy_image_view(self: Device, image_view: c.VkImageView) void {
         vkDestroyImageView(self.handle, image_view, null);
     }

@@ -92,7 +92,7 @@ pub const Vulkan = struct {
 
                 self.window.resized = false;
             } else {
-                self.sync.changed = true;
+                // self.sync.changed = true;
                 self.swapchain.force_redraw = false;
 
                 return true;

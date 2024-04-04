@@ -39,7 +39,7 @@ pub const GraphicsPipeline = struct {
         size_each: u32,
 
         const Pool = struct {
-           handle:                c.VkDescriptorPool,
+            handle:                c.VkDescriptorPool,
             descriptor_sets:       ArrayList(c.VkDescriptorSet),
             descriptor_set_layout: c.VkDescriptorSetLayout,
 
@@ -87,7 +87,8 @@ pub const GraphicsPipeline = struct {
             }
 
             fn destroy(self: *Pool, device: Device) void {
-                device.free_descriptor_sets(self.handle, self.descriptor_sets.items.len, self.descriptor_sets.items) catch {};
+                // device.free_descriptor_sets(self.handle, self.descriptor_sets.items.len, self.descriptor_sets.items) catch {};
+                device.destroy_descriptor_pool(self.handle);
                 self.descriptor_sets.deinit();
             }
         };
@@ -209,6 +210,7 @@ pub const GraphicsPipeline = struct {
                 .minDepth = 0.0,
                 .maxDepth = 1.0,
             },
+            .scissorCount = 1,
             .pScissors     = &.{
                 .offset = .{.x = 0, .y = 0},
                 .extent = .{

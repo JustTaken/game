@@ -244,6 +244,7 @@ pub const Swapchain = struct {
         defer images.deinit();
 
         for (images.items, 0..) |image, i| {
+            device.destroy_image_view(self.image_views.items[i]);
             self.image_views.items[i] = try device.create_image_view(.{
                 .sType            = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
                 .image            = image,
@@ -265,6 +266,8 @@ pub const Swapchain = struct {
             });
         }
 
+
+        device.destroy_image(self.depth_image);
         self.depth_image = try device.create_image(.{
             .sType     = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .imageType = c.VK_IMAGE_TYPE_2D,
@@ -290,6 +293,7 @@ pub const Swapchain = struct {
             }
         } else return error.NoMemoryRequirementsPassed;
 
+        device.free_memory(self.depth_image_memory);
         self.depth_image_memory = try device.allocate_memory(.{
             .sType = c.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
             .allocationSize = image_memory_requirements.size,
@@ -298,6 +302,7 @@ pub const Swapchain = struct {
 
         try device.bind_image_memory(self.depth_image, self.depth_image_memory);
 
+        device.destroy_image_view(self.depth_image_view);
         self.depth_image_view = try device.create_image_view(.{
             .sType            = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
             .image            = self.depth_image,
@@ -313,6 +318,7 @@ pub const Swapchain = struct {
         });
 
         for (0..image_count) |i| {
+            device.destroy_framebuffer(self.framebuffers.items[i]);
             self.framebuffers.items[i] = try device.create_framebuffer(.{
                 .sType           = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
                 .renderPass      = pipeline.render_pass,
@@ -342,7 +348,7 @@ pub const Swapchain = struct {
         data:         Data,
         sync:         *Sync,
     ) !bool {
-        self.draw_frame(device, pipeline, command_pool, data, sync.*) catch |e| {
+        self.draw_frame(device, pipeline, command_pool, data, sync) catch |e| {
             if(e == Result.SuboptimalKhr or e == Result.OutOfDateKhr) return true
             else return e;
         };
@@ -356,12 +362,13 @@ pub const Swapchain = struct {
         pipeline:     GraphicsPipeline,
         command_pool: *CommandPool,
         data:         Data,
-        sync:         Sync,
+        sync:         *Sync,
     ) !void {
-        const image_index = try self.acquire_next_image(device, sync);
+        const image_index = try self.acquire_next_image(device, sync.*);
 
         if (!(command_pool.buffers.items[image_index].is_valid)) try command_pool.buffers.items[image_index].record(device, pipeline, self, data);
 
+        sync.changed = true;
         try device.queue_submit(sync.in_flight_fence, .{
             .sType                = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
             .waitSemaphoreCount   = 1,
@@ -386,12 +393,21 @@ pub const Swapchain = struct {
 
     pub fn destroy(self: *Swapchain, device: Device) void {
         device.free_memory(self.depth_image_memory);
+
+        for (self.image_views.items) |view| {
+            device.destroy_image_view(view);
+        }
+
         device.destroy_image_view(self.depth_image_view);
         device.destroy_image(self.depth_image);
 
         self.image_views.deinit();
-        self.framebuffers.deinit();
 
+        for (self.framebuffers.items) |framebuffer| {
+            device.destroy_framebuffer(framebuffer);
+        }
+
+        self.framebuffers.deinit();
         device.destroy_swapchain(self.handle);
     }
 };

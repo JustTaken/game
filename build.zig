@@ -56,7 +56,7 @@ pub fn build(builder: *std.Build) void {
 fn scan_wayland_xml(builder: *std.Build, flag: []const u8, output: []const u8) void {
     const scanner = builder.addSystemCommand(&.{"wayland-scanner"});
 
-    scanner.addArgs(&.{ flag, "outputs/out/include/xdg-shell.xml" });
+    scanner.addArgs(&.{ flag, "assets/xdg-shell.xml" });
     const out = scanner.addOutputFileArg(output);
 
     builder.getInstallStep().dependOn(&builder.addInstallFileWithDir(out, .prefix, output).step);

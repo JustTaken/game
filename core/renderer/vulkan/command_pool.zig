@@ -21,9 +21,9 @@ const c                  = _platform.c;
 const configuration      = _config.Configuration;
 
 pub const CommandPool = struct {
-    handle: c.VkCommandPool,
+    handle:  c.VkCommandPool,
     buffers: ArrayList(Buffer),
-    arena: ArenaAllocator,
+    arena:   ArenaAllocator,
 
     const Buffer = struct {
         handle:   c.VkCommandBuffer,
@@ -47,12 +47,8 @@ pub const CommandPool = struct {
                 },
                 .clearValueCount = 2,
                 .pClearValues    = &[_] c.VkClearValue {
-                    .{
-                        .color = .{ .float32 = .{0.0, 0.0, 0.0, 1.0}, }
-                    },
-                    .{
-                        .depthStencil = .{ .depth = 1.0, .stencil = 0 },
-                    }
+                    .{ .color = .{ .float32 = .{0.0, 0.0, 0.0, 1.0}, } },
+                    .{ .depthStencil = .{ .depth = 1.0, .stencil = 0 } }
                 },
             });
 
@@ -72,15 +68,15 @@ pub const CommandPool = struct {
 
             device.cmd_bind_pipeline(self.handle, pipeline.handle);
 
-            for (0..data.models.len) |i| {
-                if (data.models[i].len == 0) continue;
+            for (data.models) |model| {
+                if (model.len == 0) continue;
 
-                device.cmd_bind_vertex_buffer(self.handle, data.models[i].vertex.handle);
-                device.cmd_bind_index_buffer(self.handle, data.models[i].index.handle);
+                device.cmd_bind_vertex_buffer(self.handle, model.vertex.handle);
+                device.cmd_bind_index_buffer(self.handle, model.index.handle);
 
-                for (data.models[i].items.items) |item| {
+                for (model.items.items) |item| {
                     device.cmd_bind_descriptor_sets(self.handle, pipeline.layout, 0, 2, &[_] c.VkDescriptorSet {data.global.descriptor_set, item.descriptor_set}, null);
-                    device.cmd_draw_indexed(self.handle, data.models[i].len);
+                    device.cmd_draw_indexed(self.handle, model.len);
                 }
             }
 
