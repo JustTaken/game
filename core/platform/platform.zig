@@ -1,12 +1,11 @@
+const std      = @import("std");
+
 pub const c = @cImport({
     @cDefine("VK_USE_PLATFORM_WAYLAND_KHR", "");
     @cDefine("VK_NO_PROTOTYPES", "");
     @cInclude("vulkan/vulkan.h");
-    @cInclude("wayland-client.h");
     @cInclude("xdg-shell.h");
 });
-
-const std      = @import("std");
 
 const dlopen = std.c.dlopen;
 const dlsym = std.c.dlsym;

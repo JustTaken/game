@@ -43,8 +43,8 @@ pub const Vulkan = struct {
         var graphics_pipeline = try GraphicsPipeline.new(device, instance, window, allocator);
         const swapchain = try Swapchain.new(device, allocator, instance, window, graphics_pipeline);
         const sync = try Sync.new(device);
-        const data = try Data.new(device, &graphics_pipeline.descriptor, allocator);
         const command_pool = try CommandPool.new(device, swapchain);
+        const data = try Data.new(device, &graphics_pipeline.descriptor, command_pool, allocator);
 
         return .{
             .sync              = sync,
@@ -92,7 +92,6 @@ pub const Vulkan = struct {
 
                 self.window.resized = false;
             } else {
-                // self.sync.changed = true;
                 self.swapchain.force_redraw = false;
 
                 return true;

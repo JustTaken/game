@@ -43,7 +43,7 @@ pub const TrueTypeFont = struct {
     };
 
     const Glyph = struct {
-        vertex: ArrayList(Vec),
+        vertex: ArrayList([3]f32),
         index:  ArrayList(u16),
         x_min:  i16,
         y_min:  i16,
@@ -72,7 +72,7 @@ pub const TrueTypeFont = struct {
 
             var max: u32 = 0;
             for (0..number_of_contours) |_| {
-                const contour_end = convert(&try reader.read(2));
+                const contour_end = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
 
                 if (contour_end > max) {
                     max = contour_end;
@@ -89,7 +89,7 @@ pub const TrueTypeFont = struct {
 
             defer points.deinit();
 
-            const off = convert(&try reader.read(2));
+            const off = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
             const pos = reader.pos();
 
             reader.seek(off + pos);
@@ -116,7 +116,7 @@ pub const TrueTypeFont = struct {
                 i += 1;
             }
 
-            var vertex = try ArrayList(Vec).init(allocator, max + 1);
+            var vertex = try ArrayList([3]f32).init(allocator, max + 1);
             var index = try ArrayList(u16).init(allocator, max + 1);
 
             var values: [2]i16 = .{ 0, 0 };
@@ -128,7 +128,7 @@ pub const TrueTypeFont = struct {
                         if (flags.items[k] & x_delta != 0) values[0] += v
                         else values[0] -= v;
                     } else if (~flags.items[k] & x_delta != 0) {
-                        values[0] += @bitCast(@as(u16, @intCast(convert(&try reader.read(2)))));
+                        values[0] += @bitCast(@as(u16, @intCast(@byteSwap(@as(u16, @bitCast(try reader.read(2)))))));
                     }
 
                     break :blk @as(f32, @floatFromInt(values[0])) * factor;
@@ -143,18 +143,14 @@ pub const TrueTypeFont = struct {
                         if (flags.items[k] & y_delta != 0) values[1] += v
                         else values[1] -= v;
                     } else if (~flags.items[k] & y_delta != 0) {
-                        values[1] += @bitCast(@as(u16, @intCast(convert(&try reader.read(2)))));
+                        values[1] += @bitCast(@as(u16, @intCast(@byteSwap(@as(u16, @bitCast(try reader.read(2)))))));
                     }
 
                     break :blk @as(f32, @floatFromInt(values[1])) * factor;
                 };
 
                 if (points.items[k].on_curve) {
-                    try vertex.push(.{
-                        .x = points.items[k].x,
-                        .y = points.items[k].y,
-                        .z = 0.0,
-                    });
+                    try vertex.push(.{ points.items[k].x, points.items[k].y, 0.0, });
                 }
             }
 
@@ -181,10 +177,10 @@ pub const TrueTypeFont = struct {
 
                 if (header.index_to_loc_format == 1 ) {
                     reader.seek(tables[@intFromEnum(Table.Type.Location)].offset + index * 4);
-                    off = convert(&try reader.read(4));
+                    off = @byteSwap(@as(u32, @bitCast(try reader.read(4))));
                 } else {
                     reader.seek(tables[@intFromEnum(Table.Type.Location)].offset + index * 2);
-                    off = convert(&try reader.read(2)) * 2;
+                    off = @byteSwap(@as(u16, @bitCast(try reader.read(2)))) * 2;
                 }
 
                 break :blk tables[@intFromEnum(Table.Type.Glyph)].offset + off;
@@ -192,11 +188,11 @@ pub const TrueTypeFont = struct {
 
             reader.seek(offset);
 
-            const number_of_contours = convert(&try reader.read(2));
-            const x_min              = convert(&try reader.read(2));
-            const y_min              = convert(&try reader.read(2));
-            const x_max              = convert(&try reader.read(2));
-            const y_max              = convert(&try reader.read(2));
+            const number_of_contours = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            const x_min              = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            const y_min              = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            const x_max              = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            const y_max              = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
 
             const points: [5]i16 = .{
                 @bitCast(@as(u16, @intCast(number_of_contours))),
@@ -236,23 +232,23 @@ pub const TrueTypeFont = struct {
         checksum_adjustment:  u32,
 
         fn new(reader: Reader) !Header {
-            const version             = convert(&try reader.read(4));
-            const font_revision       = convert(&try reader.read(4));
-            const checksum_adjustment = convert(&try reader.read(4));
-            const magic_number        = convert(&try reader.read(4));
-            const flags               = convert(&try reader.read(2));
-            const units_pem           = convert(&try reader.read(2));
+            const version             = @byteSwap(@as(u32, @bitCast(try reader.read(4))));
+            const font_revision       = @byteSwap(@as(u32, @bitCast(try reader.read(4))));
+            const checksum_adjustment = @byteSwap(@as(u32, @bitCast(try reader.read(4))));
+            const magic_number        = @byteSwap(@as(u32, @bitCast(try reader.read(4))));
+            const flags               = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            const units_pem           = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
             const created             = get_date(try reader.read(8));
             const modified            = get_date(try reader.read(8));
-            const xMin                = convert(&try reader.read(2));
-            const xMax                = convert(&try reader.read(2));
-            const yMin                = convert(&try reader.read(2));
-            const yMax                = convert(&try reader.read(2));
-            const mac_style           = convert(&try reader.read(2));
-            const lowest_rec_ppem     = convert(&try reader.read(2));
-            const font_direction_hint = convert(&try reader.read(2));
-            const index_to_loc_format = convert(&try reader.read(2));
-            const glyph_data_format   = convert(&try reader.read(2));
+            const xMin                = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            const xMax                = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            const yMin                = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            const yMax                = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            const mac_style           = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            const lowest_rec_ppem     = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            const font_direction_hint = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            const index_to_loc_format = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            const glyph_data_format   = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
 
             if (magic_number != 0x5f0f3cf5) return error.WrongMagicNumber;
 
@@ -286,28 +282,28 @@ pub const TrueTypeFont = struct {
         format:          u8,
 
         fn format4(reader: Reader, allocator: Allocator) !Cmap {
-            const length        = convert(&try reader.read(2));
-            const language      = convert(&try reader.read(2));
-            const segment_count = convert(&try reader.read(2)) / 2;
+            const length        = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            const language      = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            const segment_count = @byteSwap(@as(u16, @bitCast(try reader.read(2)))) / 2;
 
             _ = length;
             _ = language;
 
-            _ = convert(&try reader.read(2));
-            _ = convert(&try reader.read(2));
-            _ = convert(&try reader.read(2));
+            _ = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            _ = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            _ = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
 
             var end_code        = try ArrayList(u32).init(allocator, segment_count);
             var start_code      = try ArrayList(u32).init(allocator, segment_count);
             var id_delta        = try ArrayList(i16).init(allocator, segment_count);
             var glyph_id        = try ArrayList(u32).init(allocator, segment_count);
 
-            for (0..segment_count) |_| { try end_code.push(convert(&try reader.read(2))); }
-            if (convert(&try reader.read(2)) != 0) return error.ReservedPadNotZero;
-            for (0..segment_count) |_| { try start_code.push(convert(&try reader.read(2))); }
-            for (0..segment_count) |_| { try id_delta.push(@bitCast(@as(u16, @intCast(convert(&try reader.read(2)))))); }
+            for (0..segment_count) |_| { try end_code.push(@byteSwap(@as(u16, @bitCast(try reader.read(2))))); }
+            if (@byteSwap(@as(u16, @bitCast(try reader.read(2)))) != 0) return error.ReservedPadNotZero;
+            for (0..segment_count) |_| { try start_code.push(@byteSwap(@as(u16, @bitCast(try reader.read(2))))); }
+            for (0..segment_count) |_| { try id_delta.push(@bitCast(@as(u16, @intCast(@byteSwap(@as(u16, @bitCast(try reader.read(2)))))))); }
             for (0..segment_count) |_| {
-                const range_offset = convert(&try reader.read(2));
+                const range_offset = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
 
                 if (range_offset != 0) {
                     try glyph_id.push(@as(u32, @intCast(reader.pos())) - 2 + range_offset);
@@ -326,24 +322,24 @@ pub const TrueTypeFont = struct {
         }
 
         fn format12(reader: Reader, allocator: Allocator) !Cmap {
-            if (convert(&try reader.read(2)) != 0) return error.ReservedPadNotZero;
+            if (@byteSwap(@as(u16, @bitCast(try reader.read(2)))) != 0) return error.ReservedPadNotZero;
 
-            const length = convert(&try reader.read(4));
-            const language = convert(&try reader.read(4));
+            const length = @byteSwap(@as(u32, @bitCast(try reader.read(4))));
+            const language = @byteSwap(@as(u32, @bitCast(try reader.read(4))));
 
             _ = length;
             _ = language;
 
-            const group_count = convert(&try reader.read(4));
+            const group_count = @byteSwap(@as(u32, @bitCast(try reader.read(4))));
 
             var start_code = try ArrayList(u32).init(allocator, group_count);
             var end_code   = try ArrayList(u32).init(allocator, group_count);
             var glyph_code = try ArrayList(u32).init(allocator, group_count);
 
             for (0..group_count) |_| {
-                try start_code.push(convert(&try reader.read(4)));
-                try end_code.push(convert(&try reader.read(4)));
-                try glyph_code.push(convert(&try reader.read(4)));
+                try start_code.push(@byteSwap(@as(u32, @bitCast(try reader.read(4)))));
+                try end_code.push(@byteSwap(@as(u32, @bitCast(try reader.read(4)))));
+                try glyph_code.push(@byteSwap(@as(u32, @bitCast(try reader.read(4)))));
             }
 
             return .{
@@ -364,7 +360,7 @@ pub const TrueTypeFont = struct {
                                 const index_offset = self.glyph_id.items[j] + 2 * (char - self.start_code.items[j]);
 
                                 reader.seek(index_offset);
-                                break :blk convert(&try reader.read(2));
+                                break :blk @byteSwap(@as(u16, @bitCast(try reader.read(2))));
                             } else {
                                 break :blk @as(u32, @intCast(self.id_delta.items[j] + char));
                             }
@@ -386,7 +382,7 @@ pub const TrueTypeFont = struct {
         }
 
         fn new(reader: Reader, allocator: Allocator) !Cmap {
-            const format = convert(&try reader.read(2));
+            const format = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
 
             if (format == 4) {
                 return try format4(reader, allocator);
@@ -439,27 +435,26 @@ pub const TrueTypeFont = struct {
         fn new(reader: Reader) !Table {
             return .{
                 .name     = try reader.read(4),
-                .checksum = convert(&try reader.read(4)),
-                .offset   = convert(&try reader.read(4)),
-                .length   = convert(&try reader.read(4)),
+                .checksum = @byteSwap(@as(u32, @bitCast(try reader.read(4)))),
+                .offset   = @byteSwap(@as(u32, @bitCast(try reader.read(4)))),
+                .length   = @byteSwap(@as(u32, @bitCast(try reader.read(4)))),
             };
         }
     };
 
     pub fn new(file_path: []const u8, allocator: Allocator) !TrueTypeFont {
         const reader = try Reader.new(file_path);
-
         defer reader.shutdown();
 
         var header: Header    = undefined;
         var glyphs_count: u32 = undefined;
         var map_table: Cmap   = undefined;
 
-        const scalar_type     = convert(&try reader.read(4));
-        const num_tables      = convert(&try reader.read(2));
-        const search_range    = convert(&try reader.read(2));
-        const entry_selector  = convert(&try reader.read(2));
-        const range_shift     = convert(&try reader.read(2));
+        const scalar_type     = @byteSwap(@as(u32, @bitCast(try reader.read(4))));
+        const num_tables      = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+        const search_range    = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+        const entry_selector  = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+        const range_shift     = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
 
         var tables = try allocator.alloc(Table, @typeInfo(Table.Type).Enum.fields.len);
         const pos = reader.pos();
@@ -479,13 +474,13 @@ pub const TrueTypeFont = struct {
                 },
                 .Max => {
                     reader.seek(table.offset + 4);
-                    glyphs_count = convert(&try reader.read(2));
+                    glyphs_count = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
                 },
                 .Map => {
                     reader.seek(table.offset);
 
-                    const version = convert(&try reader.read(2));
-                    const number_subtables = convert(&try reader.read(2));
+                    const version = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+                    const number_subtables = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
                     const table_pos = reader.pos();
 
                     _ = version;
@@ -493,15 +488,19 @@ pub const TrueTypeFont = struct {
                     for (0..number_subtables) |i| {
                         reader.seek(table_pos + 8 * i);
 
-                        const id          = convert(&try reader.read(2));
-                        const specific_id = convert(&try reader.read(2));
-                        const offset      = convert(&try reader.read(4));
+                        const id          = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+                        const specific_id = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+                        const offset      = @byteSwap(@as(u32, @bitCast(try reader.read(4))));
 
-                       if (specific_id != 0 and specific_id != 4 and specific_id != 3) continue;
+                        if (specific_id != 0 and specific_id != 4 and specific_id != 3) continue;
                         if (id != 0) continue;
 
                         reader.seek(table.offset + offset);
-                        map_table = Cmap.new(reader, allocator) catch continue;
+                        map_table = Cmap.new(reader, allocator) catch |e| {
+                            std.debug.print("No good: {}\n", .{e});
+                            continue;
+                        };
+
                         break;
                     }
                 },
@@ -534,11 +533,17 @@ pub const TrueTypeFont = struct {
 
         const index = try self.map_table.get_index(reader, c);
         const glyph = try Glyph.new(self.tables, reader, self.header, self.allocator, index);
+
         try self.glyphs.push(glyph);
+        var texture = try ArrayList([2]f32).init(self.allocator, @intCast(glyph.index.items.len));
+        texture.items.len = glyph.index.items.len;
+
+        @memset(texture.items, .{0, 0});
 
         return .{
             .vertex = glyph.vertex,
             .index  = glyph.index,
+            .texture = texture
         };
     }
 

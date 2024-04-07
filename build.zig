@@ -32,6 +32,7 @@ pub fn build(builder: *std.Build) void {
     core.addIncludePath(.{ .path = "zig-out/bin/include" });
     core.addIncludePath(.{ .path = "outputs/out/include" });
     core.linkSystemLibrary("wayland-client", .{});
+    core.linkSystemLibrary("z", .{});
 
     exe.linkLibC();
     exe.root_module.addImport("core", core);

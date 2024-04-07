@@ -22,6 +22,7 @@ pub const Device = struct {
     physical_device:   c.VkPhysicalDevice,
     memory_properties: c.VkPhysicalDeviceMemoryProperties,
     queues:            [4]Queue,
+    physical_device_properties: c.VkPhysicalDeviceProperties,
 
     pub const Queue = struct {
         handle: c.VkQueue,
@@ -177,6 +178,7 @@ pub const Device = struct {
             .queues            = queues,
             .physical_device   = physical_device,
             .memory_properties = instance.get_physical_device_memory_properties(physical_device),
+            .physical_device_properties = instance.get_physical_device_properties(physical_device),
         };
     }
 
@@ -306,6 +308,13 @@ pub const Device = struct {
         return buffer;
     }
 
+    pub fn create_sampler(self: Device, info: c.VkSamplerCreateInfo) !c.VkSampler {
+        var sampler: c.VkSampler = undefined;
+        try check(vkCreateSampler(self.handle, &info, null, &sampler));
+
+        return sampler;
+    }
+
     pub fn create_descriptor_set_layout(self: Device, info: c.VkDescriptorSetLayoutCreateInfo) !c.VkDescriptorSetLayout {
         var desc: c.VkDescriptorSetLayout = undefined;
         try check(vkCreateDescriptorSetLayout(self.handle, &info, null, &desc));
@@ -335,6 +344,13 @@ pub const Device = struct {
         try check(vkAllocateCommandBuffers(self.handle, &info, &command_buffers[0]));
 
         return command_buffers;
+    }
+
+    pub fn allocate_command_buffer(self: Device, info: c.VkCommandBufferAllocateInfo) !c.VkCommandBuffer {
+        var command_buffer: c.VkCommandBuffer = undefined;
+        try check(vkAllocateCommandBuffers(self.handle, &info, &command_buffer));
+
+        return command_buffer;
     }
 
     pub fn allocate_descriptor_sets(self: Device, info: c.VkDescriptorSetAllocateInfo, allocator: Allocator) ![]c.VkDescriptorSet {
@@ -404,6 +420,10 @@ pub const Device = struct {
         vkCmdCopyBuffer(command_buffer, src, dst, 1, &copy);
     }
 
+    pub fn cmd_copy_buffer_to_image(_: Device, command_buffer: c.VkCommandBuffer, info: c.VkCopyBufferToImageInfo2) void {
+        vkCmdCopyBufferToImage2(command_buffer, &info);
+    }
+
     pub fn cmd_draw(_: Device, command_buffer: c.VkCommandBuffer, size: u32) void {
         vkCmdDraw(command_buffer, size, 1, 0, 0);
     }
@@ -421,8 +441,25 @@ pub const Device = struct {
         vkCmdPushConstants(command_buffer, layout, c.VK_SHADER_STAGE_VERTEX_BIT, offset, size, value);
     }
 
-    pub fn update_descriptor_sets(self: Device, write: c.VkWriteDescriptorSet) void {
-        vkUpdateDescriptorSets(self.handle, 1, &write, 0, null);
+    pub fn cmd_pipeline_barrier(
+        _: Device,
+        command_buffer: c.VkCommandBuffer,
+        source_stage: c.VkPipelineStageFlags,
+        destination_stage: c.VkPipelineStageFlags,
+        memory_barriers: ?[]const c.VkMemoryBarrier,
+        buffer_barriers: ?[]const c.VkBufferMemoryBarrier,
+        image_memory_barriers: ?[]const c.VkImageMemoryBarrier
+    ) void {
+        vkCmdPipelineBarrier(
+            command_buffer, source_stage, destination_stage, 0,
+            if (memory_barriers) |mb| @intCast(mb.len) else 0, if (memory_barriers) |m| &m[0] else null,
+            if (buffer_barriers) |mb| @intCast(mb.len) else 0, if (buffer_barriers) |m| &m[0] else null,
+            if (image_memory_barriers) |mb| @intCast(mb.len) else 0, if (image_memory_barriers) |m| &m[0] else null,
+        );
+    }
+
+    pub fn update_descriptor_sets(self: Device, writes: []const c.VkWriteDescriptorSet) void {
+        vkUpdateDescriptorSets(self.handle, @intCast(writes.len), writes.ptr, 0, null);
     }
 
     pub fn end_render_pass(_: Device, command_buffer: c.VkCommandBuffer) void {
@@ -493,6 +530,10 @@ pub const Device = struct {
         vkDestroyDescriptorPool(self.handle, pool, null);
     }
 
+    pub fn destroy_sampler(self: Device, sampler: c.VkSampler) void {
+        vkDestroySampler(self.handle, sampler, null);
+    }
+
     pub fn free_memory(self: Device, memory: c.VkDeviceMemory) void {
         vkFreeMemory(self.handle, memory, null);
     }
@@ -540,6 +581,8 @@ pub fn populate_device_functions(device: c.VkDevice, instance: c.VkInstance) !vo
     vkCreateSemaphore              = @as(c.PFN_vkCreateSemaphore, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateSemaphore"))) orelse return error.FunctionNotFound;
     vkCreateFence                  = @as(c.PFN_vkCreateFence, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateFence"))) orelse return error.FunctionNotFound;
     vkCreateBuffer                 = @as(c.PFN_vkCreateBuffer, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateBuffer"))) orelse return error.FunctionNotFound;
+    vkCreateSampler                 = @as(c.PFN_vkCreateSampler, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateSampler"))) orelse return error.FunctionNotFound;
+    vkDestroySampler                 = @as(c.PFN_vkDestroySampler, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroySampler"))) orelse return error.FunctionNotFound;
     vkCreateDescriptorSetLayout    = @as(c.PFN_vkCreateDescriptorSetLayout, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateDescriptorSetLayout"))) orelse return error.FunctionNotFound;
     vkDestroyCommandPool           = @as(c.PFN_vkDestroyCommandPool, @ptrCast(vkGetDeviceProcAddr(device, "vkDestroyCommandPool"))) orelse return error.FunctionNotFound;
     vkCreateDescriptorPool         = @as(c.PFN_vkCreateDescriptorPool, @ptrCast(vkGetDeviceProcAddr(device, "vkCreateDescriptorPool"))) orelse return error.FunctionNotFound;
@@ -566,7 +609,10 @@ pub fn populate_device_functions(device: c.VkDevice, instance: c.VkInstance) !vo
     vkCmdDraw                      = @as(c.PFN_vkCmdDraw, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdDraw"))) orelse return error.FunctionNotFound;
     vkCmdDrawIndexed               = @as(c.PFN_vkCmdDrawIndexed, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdDrawIndexed"))) orelse return error.FunctionNotFound;
     vkCmdCopyBuffer                = @as(c.PFN_vkCmdCopyBuffer, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdCopyBuffer"))) orelse return error.FunctionNotFound;
+    // vkCmdCopyBufferToImage         = @as(c.PFN_vkCmdCopyBufferToImage, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdCopyBufferToImage"))) orelse return error.FunctionNotFound;
+    vkCmdCopyBufferToImage2        = @as(c.PFN_vkCmdCopyBufferToImage2, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdCopyBufferToImage2"))) orelse return error.FunctionNotFound;
     vkCmdPushConstants             = @as(c.PFN_vkCmdPushConstants, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdPushConstants"))) orelse return error.FunctionNotFound;
+    vkCmdPipelineBarrier           = @as(c.PFN_vkCmdPipelineBarrier, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdPipelineBarrier"))) orelse return error.FunctionNotFound;
     vkUpdateDescriptorSets         = @as(c.PFN_vkUpdateDescriptorSets, @ptrCast(vkGetDeviceProcAddr(device, "vkUpdateDescriptorSets"))) orelse return error.FunctionNotFound;
     vkCmdBindDescriptorSets        = @as(c.PFN_vkCmdBindDescriptorSets, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdBindDescriptorSets"))) orelse return error.FunctionNotFound;
     vkCmdEndRenderPass             = @as(c.PFN_vkCmdEndRenderPass, @ptrCast(vkGetDeviceProcAddr(device, "vkCmdEndRenderPass"))) orelse return error.FunctionNotFound;
@@ -607,6 +653,7 @@ var vkCreateCommandPool:           *const fn (c.VkDevice, *const c.VkCommandPool
 var vkCreateSemaphore:             *const fn (c.VkDevice, *const c.VkSemaphoreCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkSemaphore) callconv(.C) i32 = undefined;
 var vkCreateFence:                 *const fn (c.VkDevice, *const c.VkFenceCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkFence) callconv(.C) i32 = undefined;
 var vkCreateBuffer:                *const fn (c.VkDevice, *const c.VkBufferCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkBuffer) callconv(.C) i32 = undefined;
+var vkCreateSampler:               *const fn (c.VkDevice, *const c.VkSamplerCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkSampler) callconv(.C) i32 = undefined;
 var vkCreateDescriptorSetLayout:   *const fn (c.VkDevice, *const c.VkDescriptorSetLayoutCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkDescriptorSetLayout) callconv(.C) i32 = undefined;
 var vkCreateDescriptorPool:        *const fn (c.VkDevice, *const c.VkDescriptorPoolCreateInfo, ?*const c.VkAllocationCallbacks, *c.VkDescriptorPool) callconv(.C) i32 = undefined;
 var vkDestroyCommandPool:          *const fn (c.VkDevice, c.VkCommandPool, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
@@ -631,10 +678,12 @@ var vkCmdBindIndexBuffer:          *const fn (c.VkCommandBuffer, c.VkBuffer, u64
 var vkCmdSetViewport:              *const fn (c.VkCommandBuffer, u32, u32, *const c.VkViewport) callconv(.C) void = undefined;
 var vkCmdSetScissor:               *const fn (c.VkCommandBuffer, u32, u32, *const c.VkRect2D) callconv(.C) void = undefined;
 var vkCmdCopyBuffer:               *const fn (c.VkCommandBuffer, c.VkBuffer, c.VkBuffer, u32, *const c.VkBufferCopy) callconv(.C) void = undefined;
+var vkCmdCopyBufferToImage2:       *const fn (c.VkCommandBuffer, *const c.VkCopyBufferToImageInfo2) callconv(.C) void = undefined;
 var vkCmdDraw:                     *const fn (c.VkCommandBuffer, u32, u32, u32, u32) callconv(.C) void = undefined;
 var vkCmdDrawIndexed:              *const fn (c.VkCommandBuffer, u32, u32, u32, i32, u32) callconv(.C) void = undefined;
 var vkCmdPushConstants:            *const fn (c.VkCommandBuffer, c.VkPipelineLayout, c.VkShaderStageFlags, u32, u32, ?*const anyopaque) callconv(.C) void = undefined;
-var vkUpdateDescriptorSets:        *const fn (c.VkDevice, u32, *const c.VkWriteDescriptorSet, u32, ?*const c.VkCopyDescriptorSet) callconv(.C) void = undefined;
+var vkCmdPipelineBarrier:          *const fn (c.VkCommandBuffer, c.VkPipelineStageFlags, c.VkPipelineStageFlags, c.VkDependencyFlags, u32, ?*const c.VkMemoryBarrier, u32, ?*const c.VkBufferMemoryBarrier, u32, ?*const c.VkImageMemoryBarrier) callconv(.C) void = undefined;
+var vkUpdateDescriptorSets:        *const fn (c.VkDevice, u32, [*]const c.VkWriteDescriptorSet, u32, ?*const c.VkCopyDescriptorSet) callconv(.C) void = undefined;
 var vkCmdBindDescriptorSets:       *const fn (c.VkCommandBuffer, c.VkPipelineBindPoint, c.VkPipelineLayout, u32, u32, [*]const c.VkDescriptorSet, u32, ?*const u32) callconv(.C) void = undefined;
 var vkCmdEndRenderPass:            *const fn (c.VkCommandBuffer) callconv(.C) void = undefined;
 var vkEndCommandBuffer:            *const fn (c.VkCommandBuffer) callconv(.C) i32 = undefined;
@@ -645,3 +694,4 @@ var vkFreeDescriptorSets:          *const fn (c.VkDevice, c.VkDescriptorPool, u3
 var vkMapMemory:                   *const fn (c.VkDevice, c.VkDeviceMemory, u64, u64, u32, *?*anyopaque) callconv(.C) i32 = undefined;
 var vkUnmapMemory:                 *const fn (c.VkDevice, c.VkDeviceMemory) callconv(.C) void = undefined;
 var vkDestroyDevice:               *const fn (c.VkDevice, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;
+var vkDestroySampler:              *const fn (c.VkDevice, c.VkSampler, ?*const c.VkAllocationCallbacks) callconv(.C) void = undefined;

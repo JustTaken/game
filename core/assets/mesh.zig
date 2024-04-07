@@ -4,7 +4,6 @@ const _collections = @import("../collections/collections.zig");
 const _math        = @import("../math/math.zig");
 const _object      = @import("object.zig");
 
-const Vec          = _math.Vec;
 const Allocator    = std.mem.Allocator;
 const ArrayList    = _collections.ArrayList;
 const Object       = _object.ObjectHandler.Object;
@@ -26,8 +25,12 @@ pub const Mesh = struct {
         var buffer: [1024]u8 = undefined;
         const size: u32      = @intCast(try file.getEndPos());
 
-        var vertex_array     = try ArrayList(Vec).init(allocator, size / 3);
+        var vertex_array     = try ArrayList([3]f32).init(allocator, size / 3);
+        var texture_data    = try ArrayList([2]f32).init(allocator, size / 3);
         var index_array      = try ArrayList(u16).init(allocator, size);
+
+        var texture_array = try allocator.alloc([2]f32, size / 3);
+        defer allocator.free(texture_array);
 
         var buf_reader       = std.io.bufferedReader(file.reader());
         var in_stream        = buf_reader.reader();
@@ -48,13 +51,17 @@ pub const Mesh = struct {
                         count         += 1;
                     }
 
-                    const vec = Vec{
-                        .x = numbers[0],
-                        .y = numbers[1],
-                        .z = numbers[2],
-                    };
+                    try vertex_array.push(.{ numbers[0], numbers[1], numbers[2] });
+                } else if (std.mem.eql(u8, first, "vt")) {
+                    var numbers: [2]f32 = undefined;
+                    var count:      u32 = 0;
 
-                    try vertex_array.push(vec);
+                    while (split.next()) |word| {
+                        numbers[count] = try std.fmt.parseFloat(f32, word);
+                        count         += 1;
+                    }
+
+                    try texture_data.push(.{numbers[0], numbers[1]});
                 } else if (std.mem.eql(u8, first, "f")) {
                     var count: u32 = 0;
                     var numbers    = try ArrayList(u16).init(allocator, 12);
@@ -74,12 +81,20 @@ pub const Mesh = struct {
                             try index_array.push(numbers.items[(i + 1) * 3]);
                             try index_array.push(numbers.items[0]);
                             try index_array.push(numbers.items[i * 3]);
+
+                            texture_array[numbers.items[(i + 1) * 3 + 1]] = texture_data.items[numbers.items[(i + 1) * 3 + 1]];
+                            texture_array[numbers.items[0 + 1]] = texture_data.items[numbers.items[0 + 1]];
+                            texture_array[numbers.items[i * 3 + 1]] = texture_data.items[numbers.items[i * 3 + 1]];
                         }
                     } else if (count % 3 == 0) {
                         for (0..count / 3) |i| {
                             try index_array.push(numbers.items[(i + 0) * 3]);
                             try index_array.push(numbers.items[(i + 1) * 3]);
                             try index_array.push(numbers.items[(i + 2) * 3]);
+
+                            texture_array[numbers.items[(i + 0) * 3]] = texture_data.items[numbers.items[(i + 0) * 3 + 1]];
+                            texture_array[numbers.items[(i + 1) * 3]] = texture_data.items[numbers.items[(i + 1) * 3 + 1]];
+                            texture_array[numbers.items[(i + 2) * 3]] = texture_data.items[numbers.items[(i + 2) * 3 + 1]];
                         }
                     } else if (count % 4 == 0) {
                         for (0..count / 4) |i| {
@@ -90,6 +105,14 @@ pub const Mesh = struct {
                             try index_array.push(numbers.items[(i + 0) * 3]);
                             try index_array.push(numbers.items[(i + 2) * 3]);
                             try index_array.push(numbers.items[(i + 3) * 3]);
+
+                            texture_array[numbers.items[(i + 0) * 3]] = texture_data.items[numbers.items[(i + 0) * 3 + 1]];
+                            texture_array[numbers.items[(i + 1) * 3]] = texture_data.items[numbers.items[(i + 1) * 3 + 1]];
+                            texture_array[numbers.items[(i + 2) * 3]] = texture_data.items[numbers.items[(i + 2) * 3 + 1]];
+
+                            texture_array[numbers.items[(i + 0) * 3]] = texture_data.items[numbers.items[(i + 0) * 3 + 1]];
+                            texture_array[numbers.items[(i + 2) * 3]] = texture_data.items[numbers.items[(i + 2) * 3 + 1]];
+                            texture_array[numbers.items[(i + 3) * 3]] = texture_data.items[numbers.items[(i + 3) * 3 + 1]];
                         }
                     }
 
@@ -100,9 +123,13 @@ pub const Mesh = struct {
             }
         }
 
+        try texture_data.clear();
+        try texture_data.push_slice(texture_array);
+
         return .{
             .index  = index_array,
             .vertex = vertex_array,
+            .texture = texture_data,
         };
     }
 };

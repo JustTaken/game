@@ -18,11 +18,13 @@ pub const ObjectHandler = struct {
 
     pub const Object = struct {
         index:  ArrayList(u16),
-        vertex: ArrayList(Vec),
+        vertex: ArrayList([3]f32),
+        texture: ArrayList([2]f32),
 
         pub fn deinit(self: *Object) void {
             self.index.deinit();
             self.vertex.deinit();
+            self.texture.deinit();
         }
     };
 

@@ -16,6 +16,7 @@ const Data               = _data.Data;
 
 const ArrayList          = _collections.ArrayList;
 const ArenaAllocator     = std.heap.ArenaAllocator;
+const Allocator          = std.mem.Allocator;
 
 const c                  = _platform.c;
 const configuration      = _config.Configuration;
@@ -91,6 +92,34 @@ pub const CommandPool = struct {
         for (0..self.buffers.items.len) |i| {
             self.buffers.items[i].is_valid = false;
         }
+    }
+
+    pub fn allocate_command_buffer(self: CommandPool, device: Device) !c.VkCommandBuffer {
+        const command_buffer = try device.allocate_command_buffer(.{
+            .sType              = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .level              = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandPool        = self.handle,
+            .commandBufferCount = 1,
+        });
+
+        try device.begin_command_buffer(command_buffer, .{
+            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = c.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        });
+
+        return command_buffer;
+    }
+
+    pub fn free_command_buffer(self: CommandPool, device: Device, command_buffer: c.VkCommandBuffer) !void {
+        try device.end_command_buffer(command_buffer);
+        try device.queue_submit(null, .{
+            .sType              = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .commandBufferCount = 1,
+            .pCommandBuffers    = &command_buffer,
+        });
+
+        try device.queue_wait_idle(device.queues[0].handle);
+        device.free_command_buffer(self.handle, command_buffer);
     }
 
     pub fn new(device: Device, swapchain: Swapchain) !CommandPool {

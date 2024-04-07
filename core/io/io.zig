@@ -5,6 +5,7 @@ const _collections = @import("../collections/collections.zig");
 
 const ArrayList    = _collections.ArrayList;
 const Vec          = _math.Vec;
+const Allocator    = std.mem.Allocator;
 
 pub const Io = struct {
     pub const Reader = struct {
@@ -21,6 +22,13 @@ pub const Io = struct {
             if (try self.file.read(&buffer) < size) return error.DidNotReadAllBytes;
 
             return buffer;
+        }
+
+        pub fn read_alloc(self: Reader, size: u32, allocator: Allocator) ![]u8 {
+            const array: []u8 = try allocator.alloc(u8, size);
+            if (try self.file.read(array) < size) return error.IncompleteContent;
+
+            return array;
         }
 
         pub fn pos(self: Reader) u64 {

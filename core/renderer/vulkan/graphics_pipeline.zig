@@ -34,34 +34,55 @@ pub const GraphicsPipeline = struct {
 
     pub const Descriptor = struct {
         pools:     ArrayList(Pool),
-        layouts:   ArrayList(c.VkDescriptorSetLayout),
+        layouts:   [@typeInfo(Layout).Enum.fields.len]c.VkDescriptorSetLayout,
         allocator: Allocator,
         size_each: u32,
+
+        const Layout = enum(u1) {
+            global,
+            model,
+        };
 
         const Pool = struct {
             handle:                c.VkDescriptorPool,
             descriptor_sets:       ArrayList(c.VkDescriptorSet),
-            descriptor_set_layout: c.VkDescriptorSetLayout,
+            layout: Layout,
 
-            fn new(device: Device, allocator: Allocator, layout: c.VkDescriptorSetLayout, size: u32) !Pool {
+            fn new(device: Device, allocator: Allocator, size: u32, layout: Layout) !Pool {
+                const pool_sizes: []const c.VkDescriptorPoolSize = switch (layout) {
+                    .model => &.{
+                        .{
+                            .type = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                            .descriptorCount = size
+                        },
+                        .{
+                            .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                            .descriptorCount = size,
+                        }
+                    },
+                    .global => &.{
+                        .{
+                            .type = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                            .descriptorCount = size
+                        }
+                    },
+                };
+
                 const handle = try device.create_descriptor_pool(.{
                     .sType         = c.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
                     .poolSizeCount = 1,
-                    .pPoolSizes    = &.{
-                        .type            = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                        .descriptorCount = size,
-                    },
+                    .pPoolSizes    = pool_sizes.ptr,
                     .maxSets       = size,
                 });
 
                 return .{
                     .handle                = handle,
                     .descriptor_sets       = try ArrayList(c.VkDescriptorSet).init(allocator, size),
-                    .descriptor_set_layout = layout,
+                    .layout                = layout,
                 };
             }
 
-            fn allocate(self: *Pool, device: Device, count: u32, allocator: Allocator) ![]const c.VkDescriptorSet {
+            fn allocate(self: *Pool, device: Device, count: u32, allocator: Allocator, layout: c.VkDescriptorSetLayout) ![]const c.VkDescriptorSet {
                 if (self.descriptor_sets.items.len + count >= self.descriptor_sets.capacity) {
                     return error.NoSpace;
                 }
@@ -69,7 +90,7 @@ pub const GraphicsPipeline = struct {
                 const layouts = try allocator.alloc(c.VkDescriptorSetLayout, count);
                 defer allocator.free(layouts);
 
-                @memset(layouts, self.descriptor_set_layout);
+                @memset(layouts, layout);
 
                 const descriptor_sets = try device.allocate_descriptor_sets(.{
                     .sType              = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
@@ -87,7 +108,6 @@ pub const GraphicsPipeline = struct {
             }
 
             fn destroy(self: *Pool, device: Device) void {
-                // device.free_descriptor_sets(self.handle, self.descriptor_sets.items.len, self.descriptor_sets.items) catch {};
                 device.destroy_descriptor_pool(self.handle);
                 self.descriptor_sets.deinit();
             }
@@ -96,29 +116,26 @@ pub const GraphicsPipeline = struct {
         fn new(size_each: u32, allocator: Allocator) !Descriptor {
             return .{
                 .pools     = try ArrayList(Pool).init(allocator, 1),
-                .layouts   = try ArrayList(c.VkDescriptorSetLayout).init(allocator, 1),
+                .layouts   = undefined,
                 .size_each = size_each,
                 .allocator = allocator,
             };
         }
 
-        fn add_layout(self: *Descriptor, layout: c.VkDescriptorSetLayout) !usize {
-            const id = self.layouts.items.len;
-            try self.layouts.push(layout);
-
-            return id;
+        fn add_layout(self: *Descriptor, descriptor_set_layout: c.VkDescriptorSetLayout, layout: Layout) !void {
+            self.layouts[@intFromEnum(layout)] = descriptor_set_layout;
         }
 
-        pub fn allocate(self: *Descriptor, device: Device, layout_id: usize, count: u32) ![]const c.VkDescriptorSet {
+        pub fn allocate(self: *Descriptor, device: Device, layout: Layout, count: u32) ![]const c.VkDescriptorSet {
             const descriptor_sets = blk: for (0..self.pools.items.len) |i| {
-                const sets = self.pools.items[i].allocate(device, count, self.allocator) catch {
+                const sets = self.pools.items[i].allocate(device, count, self.allocator, self.layouts[@intFromEnum(layout)]) catch {
                     continue;
                 };
 
                 break :blk sets;
             } else {
-                try self.pools.push(try Pool.new(device, self.allocator, self.layouts.items[layout_id], self.size_each));
-                break :blk try self.pools.items[self.pools.items.len - 1].allocate(device, count, self.allocator);
+                try self.pools.push(try Pool.new(device, self.allocator, self.size_each, layout));
+                break :blk try self.pools.items[self.pools.items.len - 1].allocate(device, count, self.allocator, self.layouts[@intFromEnum(layout)]);
             };
 
             return descriptor_sets;
@@ -129,22 +146,19 @@ pub const GraphicsPipeline = struct {
                 self.pools.items[i].destroy(device);
             }
 
-            for (self.layouts.items) |layout| {
+            for (self.layouts) |layout| {
                 device.destroy_descriptor_set_layout(layout);
             }
 
-            self.layouts.deinit();
             self.pools.deinit();
         }
     };
 
     pub fn new(device: Device, instance: Instance, window: Window, allocator: Allocator) !GraphicsPipeline {
         const vert_code = try Io.read_file("assets/shader/vert.spv", allocator);
-
         defer allocator.free(vert_code);
 
         const frag_code = try Io.read_file("assets/shader/frag.spv", allocator);
-
         defer allocator.free(frag_code);
 
         const vert_module = try device.create_shader_module(.{
@@ -224,7 +238,7 @@ pub const GraphicsPipeline = struct {
             .sType                   = c.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
             .cullMode                = c.VK_CULL_MODE_BACK_BIT,
             .frontFace               = c.VK_FRONT_FACE_CLOCKWISE,
-            .polygonMode             = c.VK_POLYGON_MODE_LINE,
+            .polygonMode             = c.VK_POLYGON_MODE_FILL,
             .depthBiasEnable         = c.VK_FALSE,
             .depthClampEnable        = c.VK_FALSE,
             .rasterizerDiscardEnable = c.VK_FALSE,
@@ -272,7 +286,7 @@ pub const GraphicsPipeline = struct {
             .depthBoundsTestEnable = c.VK_FALSE,
         };
 
-        const descriptor_set_layout = try device.create_descriptor_set_layout(.{
+        const global_descriptor_set_layout = try device.create_descriptor_set_layout(.{
             .sType        = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
             .bindingCount = 1,
             .pBindings    = &[_]c.VkDescriptorSetLayoutBinding {
@@ -286,9 +300,30 @@ pub const GraphicsPipeline = struct {
             }
         });
 
+        const model_descriptor_set_layout = try device.create_descriptor_set_layout(.{
+            .sType        = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .bindingCount = 2,
+            .pBindings    = &[_]c.VkDescriptorSetLayoutBinding {
+                .{
+                    .binding            = 0,
+                    .stageFlags         = c.VK_SHADER_STAGE_VERTEX_BIT,
+                    .descriptorType     = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .descriptorCount    = 1,
+                    .pImmutableSamplers = null,
+                },
+                .{
+                    .binding            = 1,
+                    .stageFlags         = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+                    .descriptorType     = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .descriptorCount    = 1,
+                    .pImmutableSamplers = null,
+                },
+            }
+        });
+
         const layout = try device.create_pipeline_layout(.{
             .sType                  = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .pSetLayouts            = &[_] c.VkDescriptorSetLayout {descriptor_set_layout, descriptor_set_layout},
+            .pSetLayouts            = &[_] c.VkDescriptorSetLayout {global_descriptor_set_layout, model_descriptor_set_layout},
             .setLayoutCount         = 2,
             .pushConstantRangeCount = 0,
             .pPushConstantRanges    = null,
@@ -296,7 +331,8 @@ pub const GraphicsPipeline = struct {
 
         var descriptor = try Descriptor.new(16, allocator);
 
-        _ = try descriptor.add_layout(descriptor_set_layout);
+        try descriptor.add_layout(global_descriptor_set_layout, .global);
+        try descriptor.add_layout(model_descriptor_set_layout, .model);
 
         const formats = try instance.get_physical_device_surface_formats(device.physical_device, window.surface, allocator);
 
