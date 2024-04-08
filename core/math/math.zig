@@ -3,6 +3,13 @@ const std = @import("std");
 pub const TO_DEGREE = 180.0 / std.math.pi;
 pub const TO_RAD = std.math.pi / 180.0;
 
+pub fn abs(number: anytype, T: type) !T {
+    return switch (@typeInfo(@TypeOf(number))) {
+        .Int, .ComptimeInt => if (number >= 0) @intCast(number) else @intCast(- number),
+        else => return error.NotANumber,
+    };
+}
+
 pub const Vec = struct {
     x: f32,
     y: f32,

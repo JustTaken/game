@@ -97,10 +97,12 @@ pub const Data = struct {
         image_memory: c.VkDeviceMemory,
         image_view: c.VkImageView,
         sampler: c.VkSampler,
+        descriptor_set: c.VkDescriptorSet,
 
         fn new(
             device: Device,
             command_pool: CommandPool,
+            descriptor: *Descriptor,
             image_path: []const u8,
             allocator: Allocator
         ) !Texture {
@@ -108,6 +110,8 @@ pub const Data = struct {
             const len = image.pixels.len;
             const staging_buffer = try Buffer.new(device, command_pool, u8, null, .{
                 .len = len,
+                .usage = c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                .properties = c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             });
 
             var destine: *u8 = undefined;
@@ -267,11 +271,30 @@ pub const Data = struct {
                 .maxLod = 0,
             });
 
+            const descriptor_set = (try descriptor.allocate(device, .model, 1))[0];
+
+            device.update_descriptor_sets(&.{
+                .{
+                    .sType            = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .descriptorType   = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .dstSet           = descriptor_set,
+                    .dstBinding       = 0,
+                    .dstArrayElement  = 0,
+                    .descriptorCount  = 1,
+                    .pImageInfo       = &.{
+                        .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        .imageView = texture_image_view,
+                        .sampler = texture_sampler,
+                    },
+                }
+            });
+
             return .{
                 .image = texture_image,
                 .image_memory = texture_memory,
                 .image_view = texture_image_view,
                 .sampler = texture_sampler,
+                .descriptor_set = descriptor_set,
             };
         }
 
@@ -306,7 +329,6 @@ pub const Data = struct {
                 command_pool: CommandPool,
                 descriptor: *Descriptor,
                 uniform:    Uniform,
-                texture: Texture,
             ) !Item {
                 var mapped: *Uniform = undefined;
                 const buffer = try Buffer.new(device, command_pool, Uniform,  null,
@@ -319,7 +341,7 @@ pub const Data = struct {
                 try device.map_memory(buffer.memory, Uniform, 1, @ptrCast(&mapped));
                 mapped.* = uniform;
 
-                const descriptor_set = (try descriptor.allocate(device, .model, 1))[0];
+                const descriptor_set = (try descriptor.allocate(device, .instance, 1))[0];
 
                 device.update_descriptor_sets(&.{
                     .{
@@ -335,19 +357,6 @@ pub const Data = struct {
                             .range  = @sizeOf(Uniform),
                         },
                     },
-                    .{
-                        .sType            = c.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        .descriptorType   = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                        .dstSet           = descriptor_set,
-                        .dstBinding       = 1,
-                        .dstArrayElement  = 0,
-                        .descriptorCount  = 1,
-                        .pImageInfo       = &.{
-                            .imageLayout = c.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                            .imageView = texture.image_view,
-                            .sampler = texture.sampler,
-                        },
-                    }
                 });
 
                 return .{
@@ -399,6 +408,7 @@ pub const Data = struct {
         fn new(
             device:    Device,
             command_pool: CommandPool,
+            texture: Texture,
             allocator: Allocator,
             object_handler: *ObjectHandler,
             typ:       ObjectType
@@ -415,7 +425,6 @@ pub const Data = struct {
             var vertices = try ArrayList(Vertex).init(allocator, @intCast(object.vertex.items.len));
             defer vertices.deinit();
 
-            std.debug.print("type: {any}\n", .{typ});
             for (0..object.vertex.items.len) |i| {
                 try vertices.push(.{
                     .position = object.vertex.items[i],
@@ -434,7 +443,6 @@ pub const Data = struct {
             const len: u32 = @intCast(object.index.items.len);
 
             object.deinit();
-            const texture = try Texture.new(device, command_pool, "assets/image/image.png", allocator);
 
             return .{
                 .index  = index,
@@ -452,7 +460,7 @@ pub const Data = struct {
             descriptor: *Descriptor,
             uniform:    Item.Uniform
         ) !u16 {
-            try self.items.push(try Item.new(device, command_pool, descriptor, uniform, self.texture));
+            try self.items.push(try Item.new(device, command_pool, descriptor, uniform));
             return @intCast(self.items.items.len - 1);
         }
 
@@ -474,8 +482,8 @@ pub const Data = struct {
         memory: c.VkDeviceMemory,
 
         const Config = struct {
-            usage:      ?c.VkBufferUsageFlags = null,
-            properties: ?c.VkMemoryPropertyFlags = null,
+            usage:      c.VkBufferUsageFlags,
+            properties: c.VkMemoryPropertyFlags,
             len:        usize,
         };
 
@@ -486,20 +494,17 @@ pub const Data = struct {
             data:       ?ArrayList(T),
             config:     Config,
         ) !Buffer {
-            const usage      = config.usage orelse c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-            const properties = config.properties orelse c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-
             const buffer     = try device.create_buffer(.{
                 .sType       = c.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
                 .size        = @sizeOf(T) * config.len,
-                .usage       = usage,
+                .usage       = config.usage,
                 .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
             });
 
             const memory_requirements = device.get_buffer_memory_requirements(buffer);
 
             const index = for (0..device.memory_properties.memoryTypeCount) |i| {
-                if ((memory_requirements.memoryTypeBits & (@as(u32, @intCast(1)) << @as(u5, @intCast(i)))) != 0 and (device.memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
+                if ((memory_requirements.memoryTypeBits & (@as(u32, @intCast(1)) << @as(u5, @intCast(i)))) != 0 and (device.memory_properties.memoryTypes[i].propertyFlags & config.properties) == config.properties) {
                     break i;
                 }
             } else return error.NoMemoryRequirementsPassed;
@@ -516,6 +521,8 @@ pub const Data = struct {
                 var dst: *T = undefined;
                 const staging_buffer = try Buffer.new(device, command_pool,  T, null, .{
                     .len             = config.len,
+                    .usage = c.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                    .properties = c.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | c.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                 });
 
                 try device.map_memory(staging_buffer.memory, T, config.len, @ptrCast(&dst));
@@ -559,7 +566,8 @@ pub const Data = struct {
                 const k = @intFromEnum(object.typ);
 
                 if (self.models[k].len == 0) {
-                    self.models[k] = try Model.new(device, command_pool.*, self.allocator, &container.object_handler, object.typ);
+                    const texture = try Texture.new(device, command_pool.*, descriptor, "assets/image/image2.png", self.allocator);
+                    self.models[k] = try Model.new(device, command_pool.*, texture, self.allocator, &container.object_handler, object.typ);
                 }
 
                 switch (update.change) {

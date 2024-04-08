@@ -12,7 +12,7 @@ layout(set = 0, binding = 0) uniform UniformGlobalObject {
   mat4 proj;
 } ugo;
 
-layout(set = 1, binding = 0) uniform UniformModelObject {
+layout(set = 2, binding = 0) uniform UniformModelObject {
   mat4 model;
   mat4 color;
 } umo;

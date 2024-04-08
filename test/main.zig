@@ -14,7 +14,8 @@ test "Parse : TrueTypeFont" {
 }
 
 test "Parse : Png" {
-    var image = try PngImage.new("assets/image/image.png", std.testing.allocator);
+    var image = try PngImage.new("assets/image/image2.png", std.testing.allocator);
+    std.debug.print("{d}\n", .{image.pixels[100..1000]});
     image.deinit();
 }
 

@@ -69,14 +69,30 @@ pub const CommandPool = struct {
 
             device.cmd_bind_pipeline(self.handle, pipeline.handle);
 
+            device.cmd_bind_descriptor_sets(
+                self.handle, pipeline.layout, 0,
+                &[_] c.VkDescriptorSet { data.global.descriptor_set, },
+                null
+            );
+
             for (data.models) |model| {
                 if (model.len == 0) continue;
 
                 device.cmd_bind_vertex_buffer(self.handle, model.vertex.handle);
                 device.cmd_bind_index_buffer(self.handle, model.index.handle);
 
+                device.cmd_bind_descriptor_sets(
+                    self.handle, pipeline.layout, 1,
+                    &[_] c.VkDescriptorSet { model.texture.descriptor_set },
+                    null
+                );
+
                 for (model.items.items) |item| {
-                    device.cmd_bind_descriptor_sets(self.handle, pipeline.layout, 0, 2, &[_] c.VkDescriptorSet {data.global.descriptor_set, item.descriptor_set}, null);
+                    device.cmd_bind_descriptor_sets(
+                        self.handle, pipeline.layout, 2,
+                        &[_] c.VkDescriptorSet { item.descriptor_set },
+                        null
+                    );
                     device.cmd_draw_indexed(self.handle, model.len);
                 }
             }

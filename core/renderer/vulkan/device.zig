@@ -432,9 +432,25 @@ pub const Device = struct {
         vkCmdDrawIndexed(command_buffer, size, 1, 0, 0, 0);
     }
 
-    pub fn cmd_bind_descriptor_sets(_: Device, command_buffer: c.VkCommandBuffer, layout: c.VkPipelineLayout, first: u32, count: u32, descriptor_sets: []const c.VkDescriptorSet, offsets: ?[]const u32) void {
+    pub fn cmd_bind_descriptor_sets(
+        _: Device,
+        command_buffer: c.VkCommandBuffer,
+        layout: c.VkPipelineLayout,
+        first: u32,
+        descriptor_sets: []const c.VkDescriptorSet,
+        offsets: ?[]const u32
+    ) void {
         const len: u32 = if (offsets) |o| @as(u32, @intCast(o.len)) else 0;
-        vkCmdBindDescriptorSets(command_buffer, c.VK_PIPELINE_BIND_POINT_GRAPHICS, layout, first, count, descriptor_sets.ptr, len, @ptrCast(offsets));
+        vkCmdBindDescriptorSets(
+            command_buffer,
+            c.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            layout,
+            first,
+            @intCast(descriptor_sets.len),
+            descriptor_sets.ptr,
+            len,
+            @ptrCast(offsets)
+        );
     }
 
     pub fn cmd_push_constants(_: Device, command_buffer: c.VkCommandBuffer, layout: c.VkPipelineLayout, offset: u32, size: u32, value: ?*const anyopaque) void {

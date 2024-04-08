@@ -1,69 +1,27 @@
 const std = @import("std");
 const _io = @import("../io/io.zig");
+const _math = @import("../math/math.zig");
 
-const c   = @cImport({
-    @cInclude("zlib.h");
-});
-
-// extern fn stbi_load([*c]const u8, *i32, *i32, *i32, i32) callconv(.C) [*]u8;
-// extern fn stbi_image_free(*anyopaque) callconv(.C) void;
+const c   = @cImport({ @cInclude("zlib.h"); });
+const abs = _math.abs;
 
 const Allocator = std.mem.Allocator;
 const Reader = _io.Io.Reader;
 
-const Chunk = struct {
-    length: u32,
-    @"type": [4]u8,
-    data: []const u8,
-    crc: [4]u8,
-};
-
-fn abs(int: i16) u16 {
-    if (int < 0) return @intCast(-int);
-    return @intCast(int);
-}
-
 pub const PngImage = struct {
     width: u32,
     height: u32,
-    // bit_depth: u8,
-    // colour_type: u8,
-    // compression_method: u8,
-    // filter_method: u8,
-    // interlace_method: u8,
-    // allocator: Allocator,
     pixels: []const u8,
     allocator: Allocator,
 
-    // pub fn old(path: []const u8, allocator: Allocator) !PngImage {
-    //     var x: i32 = undefined;
-    //     var y: i32 = undefined;
-    //     var n: i32 = undefined;
-
-    //     const stbi_pixels = stbi_load(@ptrCast(path), &x, &y, &n, 4);
-    //     const pixels = try allocator.alloc(u8, @intCast(x * y * 4));
-    //     var image = try old(path, allocator);
-    //     defer image.deinit();
-
-    //     @memcpy(pixels, stbi_pixels);
-
-    //     defer stbi_image_free(stbi_pixels);
-
-
-    //     return .{
-    //         .pixels = pixels,
-    //         .allocator = allocator,
-    //         .width = @intCast(x),
-    //         .height = @intCast(y),
-    //     };
-    // }
-
-    pub fn deinit(self: *PngImage) void {
-        self.allocator.free(self.pixels);
-    }
+    const Chunk = struct {
+        length: u32,
+        @"type": [4]u8,
+        data: []const u8,
+        crc: [4]u8,
+    };
 
     pub fn new(path: []const u8, allocator: Allocator) !PngImage {
-        // const stdout = std.io.getStdOut().writer();
         const reader = try Reader.new(path);
         const magic_number = try reader.read(8);
         var bit_depth: u8 = undefined;
@@ -71,10 +29,11 @@ pub const PngImage = struct {
         var compression_method: u8 = undefined;
         var filter_method: u8 = undefined;
         var interlace_method: u8 = undefined;
+        var width: u32 = undefined;
+        var height: u32 = undefined;
 
         if (!std.mem.eql(u8, &magic_number, &.{ 0x89, 0x50, 0x4e, 0x47, 0xd, 0xa, 0x1a, 0xa })) return error.NotPngFile;
 
-        var image: PngImage = undefined;
         var idat: []u8 = try allocator.alloc(u8, 0);
         defer allocator.free(idat);
 
@@ -97,13 +56,8 @@ pub const PngImage = struct {
                 compression_method = @bitCast(chunk.data[10..11].*);
                 filter_method = @bitCast(chunk.data[11..12].*);
                 interlace_method = @bitCast(chunk.data[12..13].*);
-
-                image = .{
-                    .width = @byteSwap(@as(u32, @bitCast(chunk.data[0..4].*))),
-                    .height = @byteSwap(@as(u32, @bitCast(chunk.data[4..8].*))),
-                    .allocator = allocator,
-                    .pixels = undefined,
-                };
+                width = @byteSwap(@as(u32, @bitCast(chunk.data[0..4].*)));
+                height = @byteSwap(@as(u32, @bitCast(chunk.data[4..8].*)));
 
                 if (bit_depth != 8) return error.BitDepthNotSupported;
                 if (colour_type != 6) return error.ColourTypeNotSupported;
@@ -120,7 +74,7 @@ pub const PngImage = struct {
             allocator.free(chunk.data);
         }
 
-        var pixels = try allocator.alloc(u8, image.width * image.height * 4);
+        var pixels = try allocator.alloc(u8, width * height * 4);
         var odat: []u8 = try allocator.alloc(u8, idat_len);
         defer allocator.free(odat);
 
@@ -141,11 +95,11 @@ pub const PngImage = struct {
             stream.next_out = &odat[old_len..][0];
         }
 
-        const scanline_len = image.width * 4 + 1;
-        const content = try allocator.alloc(u8, image.width * 4);
+        const scanline_len = width * 4 + 1;
+        const content = try allocator.alloc(u8, width * 4);
         defer allocator.free(content);
 
-        for (0..image.height) |i| {
+        for (0..height) |i| {
             const line = odat[(scanline_len*i)..scanline_len*(i + 1)];
 
             const filter = line[0];
@@ -156,7 +110,7 @@ pub const PngImage = struct {
                 1 => {
                     var prev_rgba: [4]u8 = .{0, 0, 0, 0};
 
-                    for (0..image.width) |k| {
+                    for (0..width) |k| {
                         const new_array = [4]u8 {
                             @intCast((@as(u16, @intCast(line[k*4 + 1])) + @as(u16, @intCast(prev_rgba[0]))) % 256),
                             @intCast((@as(u16, @intCast(line[k*4 + 2])) + @as(u16, @intCast(prev_rgba[1]))) % 256),
@@ -169,9 +123,9 @@ pub const PngImage = struct {
                     }
                 },
                 2 => {
-                    const prev_line: []const u8 = pixels[image.width*4*(i - 1)..image.width*i];
+                    const prev_line: []const u8 = pixels[width*4*(i - 1)..width*4*i];
 
-                    for (0..image.width) |k| {
+                    for (0..width) |k| {
                         const new_array = [4]u8 {
                             @intCast((@as(u16, @intCast(line[k*4 + 1])) + @as(u16, @intCast(prev_line[k*4 + 0]))) % 256),
                             @intCast((@as(u16, @intCast(line[k*4 + 2])) + @as(u16, @intCast(prev_line[k*4 + 1]))) % 256),
@@ -184,10 +138,10 @@ pub const PngImage = struct {
 
                 },
                 3 => {
-                    const prev_line: []const u8 = pixels[image.width*4*(i - 1)..image.width*4*i];
+                    const prev_line: []const u8 = pixels[width*4*(i - 1)..width*4*i];
                     var prev_rgba: [4]u8 = .{0, 0, 0, 0};
 
-                    for (0..image.width) |k| {
+                    for (0..width) |k| {
                         const new_array = [4]u8 {
                             @intCast((@as(u16, @intCast(line[k*4 + 1])) + @as(u16, @intFromFloat(@floor((@as(f32, @floatFromInt(prev_rgba[0])) + @as(f32, @floatFromInt(prev_line[k*4 + 0]))) / 2)))) % 256),
                             @intCast((@as(u16, @intCast(line[k*4 + 2])) + @as(u16, @intFromFloat(@floor((@as(f32, @floatFromInt(prev_rgba[1])) + @as(f32, @floatFromInt(prev_line[k*4 + 1]))) / 2)))) % 256),
@@ -200,18 +154,18 @@ pub const PngImage = struct {
                     }
                 },
                 4 => {
-                    const prev_line: []const u8 = pixels[image.width*4*(i - 1)..image.width*4*i];
+                    const prev_line: []const u8 = pixels[width*4*(i - 1)..width*4*i];
                     var prev_rgba: [4]u8 = .{0, 0, 0, 0};
 
-                    for (0..image.width) |k| {
+                    for (0..width) |k| {
                         var new_array: [4]u8 = undefined;
                         const upper_left_pixel: []const u8 = if (k == 0) &.{0, 0, 0, 0} else prev_line[(k - 1)*4..k*4];
 
                         for (0..4) |j| {
                             const p = @as(i16, @intCast(prev_rgba[j])) + @as(i16, @intCast(prev_line[k*4 + j])) - @as(i16, @intCast(upper_left_pixel[j]));
-                            const pa = abs(p - prev_rgba[j]);
-                            const pb = abs(p - prev_line[k*4 + j]);
-                            const pc = abs(p - upper_left_pixel[j]);
+                            const pa = try abs(p - prev_rgba[j], u16);
+                            const pb = try abs(p - prev_line[k*4 + j], u16);
+                            const pc = try abs(p - upper_left_pixel[j], u16);
 
                             if (pa <= pb and pa <= pc) new_array[j] = @intCast((@as(u16, @intCast(line[k*4 + 1 + j])) + @as(u16, @intCast(prev_rgba[j]))) % 256)
                             else if (pb <= pc) new_array[j] = @intCast((@as(u16, @intCast(line[k*4 + 1 + j])) + @as(u16, @intCast(prev_line[k*4 + j]))) % 256)
@@ -221,25 +175,30 @@ pub const PngImage = struct {
                         prev_rgba = new_array;
                         @memcpy(content[k*4..(k+1)*4], &new_array);
                     }
-                    // std.debug.print("stb {d}\n", .{o_image.pixels[image.width*4*i..image.width*4*i + 1000]});
-                    // std.debug.print("mine {d}\n", .{content[0..1000]});
                 },
                 else => {
                     @memset(content, 0);
 
-                    for (0..image.width) |k| {
+                    for (0..width) |k| {
                         content[k + 3] = 255;
                     }
 
                 }
             }
 
-            // try stdout.print("{d} {d}\n", .{filter, content});
-            @memcpy(pixels[image.width*4*i..image.width*4*(i + 1)], content);
+            @memcpy(pixels[width*4*i..width*4*(i + 1)], content);
         }
 
-        image.pixels = pixels;
-        return image;
+        return .{
+            .width = width,
+            .height = height,
+            .pixels = pixels,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *PngImage) void {
+        self.allocator.free(self.pixels);
     }
 };
 
