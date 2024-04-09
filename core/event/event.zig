@@ -1,24 +1,24 @@
-const std          = @import("std");
+const std = @import("std");
 
-const _config      = @import("../util/configuration.zig");
+const _config = @import("../util/configuration.zig");
 const _collections = @import("../collections/collections.zig");
 
-const State        = _config.State;
-const ArrayList    = _collections.ArrayList;
-const Allocator    = std.mem.Allocator;
+const State = _config.State;
+const ArrayList = _collections.ArrayList;
+const Allocator = std.mem.Allocator;
 
 pub const EventSystem = struct {
-    state:  State,
+    state: State,
     events: []Event,
     allocator: Allocator,
 
     pub const Event = struct {
-        emiters:   ArrayList(Emiter),
+        emiters: ArrayList(Emiter),
         listeners: ArrayList(Listener),
 
         pub const Emiter = struct {
-            value:         Argument,
-            changed:       bool,
+            value: Argument,
+            changed: bool,
             reset_on_emit: bool,
         };
 
@@ -31,12 +31,12 @@ pub const EventSystem = struct {
         };
 
         pub const Listener= struct {
-            ptr:       *anyopaque,
-            working:    bool = false,
+            ptr: *anyopaque,
+            working: bool = false,
             listen_fn: *const fn (*anyopaque, Argument) bool,
 
             fn listen(self: *Listener, argument: Argument) bool {
-                self.working       = true;
+                self.working = true;
                 defer self.working = false;
 
                 return self.listen_fn(self.ptr, argument);
@@ -49,8 +49,8 @@ pub const EventSystem = struct {
 
         fn new_emiter(self: *Event, reset_on_emit: bool) !*Emiter {
             const emiter: Emiter = .{
-                .value         = .{ .u32  = .{0, 0} },
-                .changed       = false,
+                .value = .{ .u32 = .{0, 0} },
+                .changed = false,
                 .reset_on_emit = reset_on_emit,
             };
 
@@ -79,8 +79,8 @@ pub const EventSystem = struct {
         u16: [4]u16,
         f16: [4]f16,
 
-        i8:  [8]i8,
-        u8:  [8]u8,
+        i8: [8]i8,
+        u8: [8]u8,
     };
 
     pub fn new(allocator: Allocator) !EventSystem {
@@ -89,14 +89,14 @@ pub const EventSystem = struct {
 
         for (0..n) |i| {
             events[i] = .{
-                .emiters   = try ArrayList(Event.Emiter).init(allocator, 1),
+                .emiters = try ArrayList(Event.Emiter).init(allocator, 1),
                 .listeners = try ArrayList(Event.Listener).init(allocator, 1),
             };
         }
 
         return .{
-            .state     = .Running,
-            .events    = events,
+            .state = .Running,
+            .events = events,
             .allocator = allocator,
         };
     }

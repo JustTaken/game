@@ -1,39 +1,42 @@
-const std          = @import("std");
+const std = @import("std");
 
 const _collections = @import("../collections/collections.zig");
-const _math        = @import("../math/math.zig");
-const _object      = @import("object.zig");
+const _math = @import("../math/math.zig");
+const _object = @import("object.zig");
 
-const Allocator    = std.mem.Allocator;
-const ArrayList    = _collections.ArrayList;
-const Object       = _object.ObjectHandler.Object;
+const Allocator = std.mem.Allocator;
+const ArrayList = _collections.ArrayList;
 
 pub const Mesh = struct {
+    index: ArrayList(u16),
+    vertex: ArrayList([3]f32),
+    texture: ArrayList([2]f32),
+
     pub const Type = enum {
         cube,
         cone,
         plane,
     };
 
-    pub fn new(typ: Type, allocator: Allocator) !Object {
-        const path           = try std.mem.concat(allocator, u8, &.{"assets/objects/", @tagName(typ), ".obj"});
+    pub fn new(typ: Type, allocator: Allocator) !Mesh {
+        const path = try std.mem.concat(allocator, u8, &.{"assets/objects/", @tagName(typ), ".obj"});
         defer allocator.free(path);
 
-        var file             = try std.fs.cwd().openFile(path, .{});
+        var file = try std.fs.cwd().openFile(path, .{});
         defer file.close();
 
         var buffer: [1024]u8 = undefined;
-        const size: u32      = @intCast(try file.getEndPos());
+        const size: u32 = @intCast(try file.getEndPos());
 
-        var vertex_array     = try ArrayList([3]f32).init(allocator, size / 3);
-        var texture_data    = try ArrayList([2]f32).init(allocator, size / 3);
-        var index_array      = try ArrayList(u16).init(allocator, size);
+        var vertex_array = try ArrayList([3]f32).init(allocator, size / 3);
+        var texture_data = try ArrayList([2]f32).init(allocator, size / 3);
+        var index_array = try ArrayList(u16).init(allocator, size);
 
         var texture_array = try allocator.alloc([2]f32, size / 3);
         defer allocator.free(texture_array);
 
-        var buf_reader       = std.io.bufferedReader(file.reader());
-        var in_stream        = buf_reader.reader();
+        var buf_reader = std.io.bufferedReader(file.reader());
+        var in_stream = buf_reader.reader();
 
         while (true) {
             if (in_stream.readUntilDelimiterOrEof(&buffer, '\n') catch { break; }) |line| {
@@ -44,27 +47,27 @@ pub const Mesh = struct {
 
                 if (std.mem.eql(u8, first, "v")) {
                     var numbers: [3]f32 = undefined;
-                    var count:      u32 = 0;
+                    var count: u32 = 0;
 
                     while (split.next()) |word| {
                         numbers[count] = try std.fmt.parseFloat(f32, word);
-                        count         += 1;
+                        count += 1;
                     }
 
                     try vertex_array.push(.{ numbers[0], numbers[1], numbers[2] });
                 } else if (std.mem.eql(u8, first, "vt")) {
                     var numbers: [2]f32 = undefined;
-                    var count:      u32 = 0;
+                    var count: u32 = 0;
 
                     while (split.next()) |word| {
                         numbers[count] = try std.fmt.parseFloat(f32, word);
-                        count         += 1;
+                        count += 1;
                     }
 
                     try texture_data.push(.{numbers[0], numbers[1]});
                 } else if (std.mem.eql(u8, first, "f")) {
                     var count: u32 = 0;
-                    var numbers    = try ArrayList(u16).init(allocator, 12);
+                    var numbers = try ArrayList(u16).init(allocator, 12);
 
                     while (split.next()) |word| {
                         var number_split = std.mem.splitSequence(u8, word, &.{47});
@@ -127,10 +130,16 @@ pub const Mesh = struct {
         try texture_data.push_slice(texture_array);
 
         return .{
-            .index  = index_array,
+            .index = index_array,
             .vertex = vertex_array,
             .texture = texture_data,
         };
+    }
+
+    pub fn deinit(self: *Mesh) void {
+        self.index.deinit();
+        self.vertex.deinit();
+        self.texture.deinit();
     }
 };
 

@@ -91,9 +91,9 @@ pub const Matrix = struct {
 
     pub inline fn scale(x: f32, y: f32, z: f32) [4][4]f32 {
         return .{
-            [4]f32 {  x, 0.0, 0.0, 0.0},
-            [4]f32 {0.0,   y, 0.0, 0.0},
-            [4]f32 {0.0, 0.0,   z, 0.0},
+            [4]f32 { x, 0.0, 0.0, 0.0},
+            [4]f32 {0.0, y, 0.0, 0.0},
+            [4]f32 {0.0, 0.0, z, 0.0},
             [4]f32 {0.0, 0.0, 0.0, 1.0}
         };
     }
@@ -110,10 +110,10 @@ pub const Matrix = struct {
         }
 
         return .{
-            [4]f32 { 1.0,   0.0, 0.0, 0.0 },
-            [4]f32 { 0.0,   cos, sin, 0.0 },
+            [4]f32 { 1.0, 0.0, 0.0, 0.0 },
+            [4]f32 { 0.0, cos, sin, 0.0 },
             [4]f32 { 0.0, - sin, cos, 0.0 },
-            [4]f32 { 0.0,   0.0, 0.0, 1.0 },
+            [4]f32 { 0.0, 0.0, 0.0, 1.0 },
         };
     }
 
@@ -130,17 +130,17 @@ pub const Matrix = struct {
 
         return .{
             [4]f32 { cos, 0.0, - sin, 0.0 },
-            [4]f32 { 0.0, 1.0,   0.0, 0.0 },
-            [4]f32 { sin, 0.0,   cos, 0.0 },
-            [4]f32 { 0.0, 0.0,   0.0, 1.0 },
+            [4]f32 { 0.0, 1.0, 0.0, 0.0 },
+            [4]f32 { sin, 0.0, cos, 0.0 },
+            [4]f32 { 0.0, 0.0, 0.0, 1.0 },
         };
     }
 
     pub inline fn ortogonal(vec: Vec) [4][4]f32 {
         return .{
-            [4]f32 {vec.x * vec.x, vec.x * vec.y - vec.z, vec.x * vec.z + vec.y,  0.0},
-            [4]f32 {vec.y * vec.x + vec.z, vec.y * vec.y,  vec.y * vec.z - vec.x,  0.0},
-            [4]f32 {vec.z * vec.x - vec.y, vec.z * vec.y + vec.x, vec.z * vec.z,  0.0},
+            [4]f32 {vec.x * vec.x, vec.x * vec.y - vec.z, vec.x * vec.z + vec.y, 0.0},
+            [4]f32 {vec.y * vec.x + vec.z, vec.y * vec.y, vec.y * vec.z - vec.x, 0.0},
+            [4]f32 {vec.z * vec.x - vec.y, vec.z * vec.y + vec.x, vec.z * vec.z, 0.0},
             [4]f32 {0.0, 0.0, 0.0, 1.0},
         };
     }
@@ -151,9 +151,9 @@ pub const Matrix = struct {
         const sin = std.math.sin(theta);
 
         return .{
-            [4]f32 {cos + norm.x * norm.x * (1 - cos), norm.y * norm.x * (1 - cos) + norm.z * sin, norm.z * norm.x * (1 - cos) + norm.y * sin,  0.0},
-            [4]f32 {norm.x * norm.y * (1 - cos) - norm.z * sin, cos + norm.y * norm.y * (1 - cos),  norm.z * norm.y * (1 - cos) - norm.x * sin,  0.0},
-            [4]f32 {norm.x * norm.z * (1 - cos) + norm.y * sin, norm.y * norm.z * (1 - cos) + norm.x * sin, cos + norm.z * norm.z * (1 - cos),  0.0},
+            [4]f32 {cos + norm.x * norm.x * (1 - cos), norm.y * norm.x * (1 - cos) + norm.z * sin, norm.z * norm.x * (1 - cos) + norm.y * sin, 0.0},
+            [4]f32 {norm.x * norm.y * (1 - cos) - norm.z * sin, cos + norm.y * norm.y * (1 - cos), norm.z * norm.y * (1 - cos) - norm.x * sin, 0.0},
+            [4]f32 {norm.x * norm.z * (1 - cos) + norm.y * sin, norm.y * norm.z * (1 - cos) + norm.x * sin, cos + norm.z * norm.z * (1 - cos), 0.0},
             [4]f32 {0.0, 0.0, 0.0, 1.0},
         };
     }
@@ -163,7 +163,7 @@ pub const Matrix = struct {
             [4]f32 {1.0, 0.0, 0.0, 0.0},
             [4]f32 {0.0, 1.0, 0.0, 0.0},
             [4]f32 {0.0, 0.0, 1.0, 0.0},
-            [4]f32 {  x,   y,   z, 1.0},
+            [4]f32 { x, y, z, 1.0},
         };
     }
 
@@ -172,10 +172,10 @@ pub const Matrix = struct {
         const r = far / (far - near);
 
         return [4][4]f32 {
-            [4]f32 {top / aspect, 0.0,       0.0, 0.0},
-            [4]f32 {         0.0, top,       0.0, 0.0},
-            [4]f32 {         0.0, 0.0,         r, 1.0},
-            [4]f32 {         0.0, 0.0, -r * near, 0.0},
+            [4]f32 {top / aspect, 0.0, 0.0, 0.0},
+            [4]f32 { 0.0, top, 0.0, 0.0},
+            [4]f32 { 0.0, 0.0, r, 1.0},
+            [4]f32 { 0.0, 0.0, -r * near, 0.0},
         };
     }
 

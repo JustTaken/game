@@ -2,22 +2,22 @@ const std = @import("std");
 
 pub fn ArrayList(comptime T: type) type {
     return struct {
-        items:     []T,
-        capacity:  u32,
+        items: []T,
+        capacity: u32,
         allocator: std.mem.Allocator,
 
-        const Self        = @This();
+        const Self = @This();
         const grow_factor = 10;
 
         pub fn init(allocator: std.mem.Allocator, capacity: ?u32) !Self {
-            const c        = capacity orelse 0;
-            const memory   = try allocator.alloc(T, c);
+            const c = capacity orelse 0;
+            const memory = try allocator.alloc(T, c);
             var items: []T = &[_]T {};
-            items.ptr      = memory.ptr;
+            items.ptr = memory.ptr;
 
             return Self {
-                .items     = items,
-                .capacity  = c,
+                .items = items,
+                .capacity = c,
                 .allocator = allocator
             };
         }
@@ -27,7 +27,7 @@ pub fn ArrayList(comptime T: type) type {
                 try self.resize(self.capacity + grow_factor);
             }
 
-            self.items.len                += 1;
+            self.items.len += 1;
             self.items[self.items.len - 1] = item;
         }
 
@@ -36,7 +36,7 @@ pub fn ArrayList(comptime T: type) type {
                 try self.resize(self.capacity + @as(u32, @intCast(items.len)) + grow_factor);
             }
 
-            const len       = self.items.len;
+            const len = self.items.len;
             self.items.len += items.len;
 
             @memcpy(self.items[len..self.items.len], items.ptr[0..items.len]);
@@ -46,7 +46,7 @@ pub fn ArrayList(comptime T: type) type {
             if (self.capacity <= i) return error.IndexNotAvailable;
 
             self.items.len = std.math.max(i, self.items.len);
-            self.items[i]  = item;
+            self.items[i] = item;
         }
 
         pub fn get(self: Self, i: u32) !T {
@@ -67,8 +67,8 @@ pub fn ArrayList(comptime T: type) type {
         fn resize(self: *Self, capacity: u32) !void {
             const len = self.items.len;
 
-            self.items     = try self.allocator.realloc(self.items.ptr[0..self.capacity], capacity);
-            self.capacity  = capacity;
+            self.items = try self.allocator.realloc(self.items.ptr[0..self.capacity], capacity);
+            self.capacity = capacity;
             self.items.len = len;
         }
 

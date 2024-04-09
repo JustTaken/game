@@ -1,28 +1,28 @@
-const std           = @import("std");
+const std = @import("std");
 
-const _config       = @import("../../util/configuration.zig");
-const _platform     = @import("../../platform/platform.zig");
-const _device       = @import("device.zig");
-const _window       = @import("window.zig");
+const _config = @import("../../util/configuration.zig");
+const _platform = @import("../../platform/platform.zig");
+const _device = @import("device.zig");
+const _window = @import("window.zig");
 
-const Window        = _window.Window;
+const Window = _window.Window;
 
-const Device        = _device.Device;
+const Device = _device.Device;
 
-const Platform      = _platform.Platform;
-const Timer         = std.time.Timer;
+const Platform = _platform.Platform;
+const Timer = std.time.Timer;
 
-const c             = _platform.c;
+const c = _platform.c;
 const configuration = _config.Configuration;
-const logger        = configuration.logger;
+const logger = configuration.logger;
 
 pub const Sync = struct {
     image_available: c.VkSemaphore,
     render_finished: c.VkSemaphore,
     in_flight_fence: c.VkFence,
-    timer:           Timer,
+    timer: Timer,
     nanos_per_frame: u32,
-    changed:         bool = true,
+    changed: bool = true,
 
     pub const default: u32 = @intCast(1000000000 / 60);
 
@@ -47,7 +47,7 @@ pub const Sync = struct {
             .image_available = image,
             .render_finished = render,
             .in_flight_fence = fence,
-            .timer           = timer,
+            .timer = timer,
             .nanos_per_frame = nanos_per_frame,
         };
     }

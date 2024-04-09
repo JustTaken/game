@@ -1,40 +1,39 @@
-const std            = @import("std");
+const std = @import("std");
 
-const _config        = @import("../../util/configuration.zig");
-const _collections   = @import("../../collections/collections.zig");
-const _io            = @import("../../io/io.zig");
-const _platform      = @import("../../platform/platform.zig");
+const _config = @import("../../util/configuration.zig");
+const _collections = @import("../../collections/collections.zig");
+const _io = @import("../../io/io.zig");
+const _platform = @import("../../platform/platform.zig");
 
-const _instance      = @import("instance.zig");
-const _device        = @import("device.zig");
-const _window        = @import("window.zig");
-const _data          = @import("data.zig");
+const _instance = @import("instance.zig");
+const _device = @import("device.zig");
+const _window = @import("window.zig");
+const _data = @import("data.zig");
 
-const Window         = _window.Window;
-const Device         = _device.Device;
-const Instance       = _instance.Instance;
-const Data           = _data.Data;
+const Window = _window.Window;
+const Device = _device.Device;
+const Instance = _instance.Instance;
+const Data = _data.Data;
 
-const Platform       = _platform.Platform;
-const ArrayList      = _collections.ArrayList;
-const Io             = _io.Io;
+const c = _platform.c;
+const ArrayList = _collections.ArrayList;
+const Io = _io.Io;
 
-const Allocator      = std.mem.Allocator;
+const Allocator = std.mem.Allocator;
 
-const c              = _platform.c;
-const configuration  = _config.Configuration;
+const configuration = _config.Configuration;
 
 pub const GraphicsPipeline = struct {
-    handle:       c.VkPipeline,
-    layout:       c.VkPipelineLayout,
-    format:       c.VkSurfaceFormatKHR,
-    render_pass:  c.VkRenderPass,
+    handle: c.VkPipeline,
+    layout: c.VkPipelineLayout,
+    format: c.VkSurfaceFormatKHR,
+    render_pass: c.VkRenderPass,
     depth_format: c.VkFormat,
-    descriptor:   Descriptor,
+    descriptor: Descriptor,
 
     pub const Descriptor = struct {
-        pools:     ArrayList(Pool),
-        layouts:   [@typeInfo(Layout).Enum.fields.len]c.VkDescriptorSetLayout,
+        pools: ArrayList(Pool),
+        layouts: [@typeInfo(Layout).Enum.fields.len]c.VkDescriptorSetLayout,
         allocator: Allocator,
         size_each: u32,
 
@@ -45,8 +44,8 @@ pub const GraphicsPipeline = struct {
         };
 
         const Pool = struct {
-            handle:                c.VkDescriptorPool,
-            descriptor_sets:       ArrayList(c.VkDescriptorSet),
+            handle: c.VkDescriptorPool,
+            descriptor_sets: ArrayList(c.VkDescriptorSet),
             layout: Layout,
 
             fn new(device: Device, allocator: Allocator, size: u32, layout: Layout) !Pool {
@@ -72,16 +71,16 @@ pub const GraphicsPipeline = struct {
                 };
 
                 const handle = try device.create_descriptor_pool(.{
-                    .sType         = c.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                    .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
                     .poolSizeCount = @intCast(pool_sizes.len),
-                    .pPoolSizes    = pool_sizes.ptr,
-                    .maxSets       = size,
+                    .pPoolSizes = pool_sizes.ptr,
+                    .maxSets = size,
                 });
 
                 return .{
-                    .handle                = handle,
-                    .descriptor_sets       = try ArrayList(c.VkDescriptorSet).init(allocator, size),
-                    .layout                = layout,
+                    .handle = handle,
+                    .descriptor_sets = try ArrayList(c.VkDescriptorSet).init(allocator, size),
+                    .layout = layout,
                 };
             }
 
@@ -96,10 +95,10 @@ pub const GraphicsPipeline = struct {
                 @memset(layouts, layout);
 
                 const descriptor_sets = try device.allocate_descriptor_sets(.{
-                    .sType              = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-                    .descriptorPool     = self.handle,
+                    .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                    .descriptorPool = self.handle,
                     .descriptorSetCount = count,
-                    .pSetLayouts        = layouts.ptr,
+                    .pSetLayouts = layouts.ptr,
                 }, allocator);
 
                 defer allocator.free(descriptor_sets);
@@ -118,8 +117,8 @@ pub const GraphicsPipeline = struct {
 
         fn new(size_each: u32, allocator: Allocator) !Descriptor {
             return .{
-                .pools     = try ArrayList(Pool).init(allocator, 1),
-                .layouts   = undefined,
+                .pools = try ArrayList(Pool).init(allocator, 1),
+                .layouts = undefined,
                 .size_each = size_each,
                 .allocator = allocator,
             };
@@ -165,178 +164,178 @@ pub const GraphicsPipeline = struct {
         defer allocator.free(frag_code);
 
         const vert_module = try device.create_shader_module(.{
-            .sType    = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-            .pCode    = @as([*]const u32, @ptrCast(@alignCast(vert_code))),
+            .sType = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            .pCode = @as([*]const u32, @ptrCast(@alignCast(vert_code))),
             .codeSize = vert_code.len,
         });
 
         defer device.destroy_shader_module(vert_module);
 
         const frag_module = try device.create_shader_module(.{
-            .sType    = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            .sType = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
             .codeSize = frag_code.len,
-            .pCode    = @as([*]const u32, @ptrCast(@alignCast(frag_code))),
+            .pCode = @as([*]const u32, @ptrCast(@alignCast(frag_code))),
         });
 
         defer device.destroy_shader_module(frag_module);
 
         const shader_stage_infos = &[_]c.VkPipelineShaderStageCreateInfo {
             .{
-                .sType  = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                .stage  = c.VK_SHADER_STAGE_VERTEX_BIT,
+                .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage = c.VK_SHADER_STAGE_VERTEX_BIT,
                 .module = vert_module,
-                .pName  = "main",
+                .pName = "main",
             },
             .{
-                .sType  = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                .stage  = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+                .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .stage = c.VK_SHADER_STAGE_FRAGMENT_BIT,
                 .module = frag_module,
-                .pName  = "main",
+                .pName = "main",
             },
         };
 
         const dynamic_states = &[_]c.VkDynamicState { c.VK_DYNAMIC_STATE_VIEWPORT, c.VK_DYNAMIC_STATE_SCISSOR };
         const dynamic_state_info: c.VkPipelineDynamicStateCreateInfo = .{
-            .sType             = c.VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-            .pDynamicStates    = dynamic_states.ptr,
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+            .pDynamicStates = dynamic_states.ptr,
             .dynamicStateCount = dynamic_states.len,
         };
 
         const vertex_input_state_info: c.VkPipelineVertexInputStateCreateInfo = .{
-            .sType                           = c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-            .pVertexBindingDescriptions      = &Data.Model.Vertex.binding_description,
-            .vertexBindingDescriptionCount   = 1,
-            .pVertexAttributeDescriptions    = Data.Model.Vertex.attribute_descriptions.ptr,
-            .vertexAttributeDescriptionCount = Data.Model.Vertex.attribute_descriptions.len,
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+            .pVertexBindingDescriptions = &Data.Vertex.binding_description,
+            .vertexBindingDescriptionCount = 1,
+            .pVertexAttributeDescriptions = Data.Vertex.attribute_descriptions.ptr,
+            .vertexAttributeDescriptionCount = Data.Vertex.attribute_descriptions.len,
         };
 
         const input_assembly_state_info: c.VkPipelineInputAssemblyStateCreateInfo = .{
-            .sType                  = c.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-            .topology               = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+            .topology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
             .primitiveRestartEnable = c.VK_FALSE,
         };
 
         const viewport_state_info: c.VkPipelineViewportStateCreateInfo = .{
-            .sType         = c.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
             .viewportCount = 1,
-            .pViewports    = &.{
-                .x        = 0.0,
-                .y        = 0.0,
-                .width    = @floatFromInt(window.width),
-                .height   = @floatFromInt(window.height),
+            .pViewports = &.{
+                .x = 0.0,
+                .y = 0.0,
+                .width = @floatFromInt(window.width),
+                .height = @floatFromInt(window.height),
                 .minDepth = 0.0,
                 .maxDepth = 1.0,
             },
             .scissorCount = 1,
-            .pScissors     = &.{
+            .pScissors = &.{
                 .offset = .{.x = 0, .y = 0},
                 .extent = .{
-                    .width  = window.width,
+                    .width = window.width,
                     .height = window.height,
                 }
             },
         };
 
         const rasterizer_state_info: c.VkPipelineRasterizationStateCreateInfo = .{
-            .sType                   = c.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-            .cullMode                = c.VK_CULL_MODE_BACK_BIT,
-            .frontFace               = c.VK_FRONT_FACE_CLOCKWISE,
-            .polygonMode             = c.VK_POLYGON_MODE_FILL,
-            .depthBiasEnable         = c.VK_FALSE,
-            .depthClampEnable        = c.VK_FALSE,
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+            .cullMode = c.VK_CULL_MODE_BACK_BIT,
+            .frontFace = c.VK_FRONT_FACE_CLOCKWISE,
+            .polygonMode = c.VK_POLYGON_MODE_FILL,
+            .depthBiasEnable = c.VK_FALSE,
+            .depthClampEnable = c.VK_FALSE,
             .rasterizerDiscardEnable = c.VK_FALSE,
-            .lineWidth               = 1.0,
-            .depthBiasClamp          = 0.0,
+            .lineWidth = 1.0,
+            .depthBiasClamp = 0.0,
             .depthBiasConstantFactor = 0.0,
         };
 
         const multisampling_state_info: c.VkPipelineMultisampleStateCreateInfo = .{
-            .sType                 = c.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-            .pSampleMask           = null,
-            .alphaToOneEnable      = c.VK_FALSE,
-            .sampleShadingEnable   = c.VK_FALSE,
-            .rasterizationSamples  = c.VK_SAMPLE_COUNT_1_BIT,
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+            .pSampleMask = null,
+            .alphaToOneEnable = c.VK_FALSE,
+            .sampleShadingEnable = c.VK_FALSE,
+            .rasterizationSamples = c.VK_SAMPLE_COUNT_1_BIT,
             .alphaToCoverageEnable = c.VK_FALSE,
-            .minSampleShading      = 1.0,
+            .minSampleShading = 1.0,
         };
 
         const color_blend_state_info: c.VkPipelineColorBlendStateCreateInfo = .{
-            .sType           = c.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-            .logicOp         = c.VK_LOGIC_OP_COPY,
-            .logicOpEnable   = c.VK_FALSE,
-            .blendConstants  = .{ 0.0, 0.0, 0.0, 0.0 },
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+            .logicOp = c.VK_LOGIC_OP_COPY,
+            .logicOpEnable = c.VK_FALSE,
+            .blendConstants = .{ 0.0, 0.0, 0.0, 0.0 },
             .attachmentCount = 1,
-            .pAttachments    = &.{
-                .blendEnable         = c.VK_FALSE,
-                .colorWriteMask      = c.VK_COLOR_COMPONENT_R_BIT | c.VK_COLOR_COMPONENT_G_BIT | c.VK_COLOR_COMPONENT_B_BIT | c.VK_COLOR_COMPONENT_A_BIT,
+            .pAttachments = &.{
+                .blendEnable = c.VK_FALSE,
+                .colorWriteMask = c.VK_COLOR_COMPONENT_R_BIT | c.VK_COLOR_COMPONENT_G_BIT | c.VK_COLOR_COMPONENT_B_BIT | c.VK_COLOR_COMPONENT_A_BIT,
                 .srcColorBlendFactor = c.VK_BLEND_FACTOR_ONE,
                 .dstColorBlendFactor = c.VK_BLEND_FACTOR_ZERO,
                 .srcAlphaBlendFactor = c.VK_BLEND_FACTOR_ONE,
                 .dstAlphaBlendFactor = c.VK_BLEND_FACTOR_ZERO,
-                .colorBlendOp        = c.VK_BLEND_OP_ADD,
-                .alphaBlendOp        = c.VK_BLEND_OP_ADD,
+                .colorBlendOp = c.VK_BLEND_OP_ADD,
+                .alphaBlendOp = c.VK_BLEND_OP_ADD,
             },
         };
 
         const depth_stencil_state_info: c.VkPipelineDepthStencilStateCreateInfo = .{
-            .sType                 = c.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-            .maxDepthBounds        = 1.0,
-            .minDepthBounds        = 0.0,
-            .depthCompareOp        = c.VK_COMPARE_OP_LESS,
-            .depthTestEnable       = c.VK_TRUE,
-            .depthWriteEnable      = c.VK_TRUE,
-            .stencilTestEnable     = c.VK_FALSE,
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+            .maxDepthBounds = 1.0,
+            .minDepthBounds = 0.0,
+            .depthCompareOp = c.VK_COMPARE_OP_LESS,
+            .depthTestEnable = c.VK_TRUE,
+            .depthWriteEnable = c.VK_TRUE,
+            .stencilTestEnable = c.VK_FALSE,
             .depthBoundsTestEnable = c.VK_FALSE,
         };
 
         const global_layout = try device.create_descriptor_set_layout(.{
-            .sType        = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
             .bindingCount = 1,
-            .pBindings    = &[_]c.VkDescriptorSetLayoutBinding {
+            .pBindings = &[_]c.VkDescriptorSetLayoutBinding {
                 .{
-                    .binding            = 0,
-                    .stageFlags         = c.VK_SHADER_STAGE_VERTEX_BIT,
-                    .descriptorType     = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    .descriptorCount    = 1,
+                    .binding = 0,
+                    .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT,
+                    .descriptorType = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .descriptorCount = 1,
                     .pImmutableSamplers = null,
                 },
             }
         });
 
         const model_layout = try device.create_descriptor_set_layout(.{
-            .sType        = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
             .bindingCount = 1,
-            .pBindings    = &[_]c.VkDescriptorSetLayoutBinding {
+            .pBindings = &[_]c.VkDescriptorSetLayoutBinding {
                 .{
-                    .binding            = 0,
-                    .stageFlags         = c.VK_SHADER_STAGE_FRAGMENT_BIT,
-                    .descriptorType     = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                    .descriptorCount    = 1,
+                    .binding = 0,
+                    .stageFlags = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+                    .descriptorType = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .descriptorCount = 1,
                     .pImmutableSamplers = null,
                 },
             }
         });
 
         const instance_layout = try device.create_descriptor_set_layout(.{
-            .sType        = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .sType = c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
             .bindingCount = 1,
-            .pBindings    = &[_]c.VkDescriptorSetLayoutBinding {
+            .pBindings = &[_]c.VkDescriptorSetLayoutBinding {
                 .{
-                    .binding            = 0,
-                    .stageFlags         = c.VK_SHADER_STAGE_VERTEX_BIT,
-                    .descriptorType     = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    .descriptorCount    = 1,
+                    .binding = 0,
+                    .stageFlags = c.VK_SHADER_STAGE_VERTEX_BIT,
+                    .descriptorType = c.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .descriptorCount = 1,
                     .pImmutableSamplers = null,
                 },
             }
         });
 
         const layout = try device.create_pipeline_layout(.{
-            .sType                  = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .pSetLayouts            = &[_] c.VkDescriptorSetLayout {global_layout, model_layout, instance_layout},
-            .setLayoutCount         = 3,
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .pSetLayouts = &[_] c.VkDescriptorSetLayout {global_layout, model_layout, instance_layout},
+            .setLayoutCount = 3,
             .pushConstantRangeCount = 0,
-            .pPushConstantRanges    = null,
+            .pPushConstantRanges = null,
         });
 
         var descriptor = try Descriptor.new(16, allocator);
@@ -350,7 +349,7 @@ pub const GraphicsPipeline = struct {
         defer allocator.free(formats);
 
         const format = for (formats) |format| {
-            if (format.format == c.VK_FORMAT_B8G8R8A8_SRGB and format.colorSpace == c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) break format;
+            if (format.format == c.VK_FORMAT_R8G8B8A8_SRGB and format.colorSpace == c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) break format;
         } else formats[0];
 
         const depth_formats = [_] c.VkFormat {
@@ -368,79 +367,79 @@ pub const GraphicsPipeline = struct {
         } else return error.DepthFormat;
 
         const render_pass = try device.create_render_pass(.{
-            .sType           = c.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+            .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
             .attachmentCount = 2,
-            .pAttachments    = &[_] c.VkAttachmentDescription {
+            .pAttachments = &[_] c.VkAttachmentDescription {
                 .{
-                    .format         = format.format,
-                    .samples        = c.VK_SAMPLE_COUNT_1_BIT,
-                    .loadOp         = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
-                    .storeOp        = c.VK_ATTACHMENT_STORE_OP_STORE,
-                    .finalLayout    = c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                    .initialLayout  = c.VK_IMAGE_LAYOUT_UNDEFINED,
-                    .stencilLoadOp  = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                    .format = format.format,
+                    .samples = c.VK_SAMPLE_COUNT_1_BIT,
+                    .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
+                    .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
+                    .finalLayout = c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                    .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+                    .stencilLoadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
                     .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
                 },
                 .{
-                    .format         = depth_format,
-                    .samples        = c.VK_SAMPLE_COUNT_1_BIT,
-                    .loadOp         = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
-                    .storeOp        = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
-                    .finalLayout    = c.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                    .initialLayout  = c.VK_IMAGE_LAYOUT_UNDEFINED,
+                    .format = depth_format,
+                    .samples = c.VK_SAMPLE_COUNT_1_BIT,
+                    .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
+                    .storeOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                    .finalLayout = c.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
                     .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
-                    .stencilLoadOp  = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                    .stencilLoadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
                 }
             },
-            .subpassCount          = 1,
-            .pSubpasses            = &.{
-                .pipelineBindPoint    = c.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            .subpassCount = 1,
+            .pSubpasses = &.{
+                .pipelineBindPoint = c.VK_PIPELINE_BIND_POINT_GRAPHICS,
                 .colorAttachmentCount = 1,
-                .pColorAttachments    = &.{
+                .pColorAttachments = &.{
                     .attachment = 0,
-                    .layout     = c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    .layout = c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                 },
                 .pDepthStencilAttachment = &.{
                     .attachment = 1,
-                    .layout     = c.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    .layout = c.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                 },
             },
-            .dependencyCount       = 1,
-            .pDependencies         = &.{
-                .srcSubpass    = c.VK_SUBPASS_EXTERNAL,
-                .dstSubpass    = 0,
+            .dependencyCount = 1,
+            .pDependencies = &.{
+                .srcSubpass = c.VK_SUBPASS_EXTERNAL,
+                .dstSubpass = 0,
                 .srcAccessMask = 0,
-                .srcStageMask  = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-                .dstStageMask  = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+                .srcStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+                .dstStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | c.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
                 .dstAccessMask = c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | c.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
             },
         });
 
         const handle = try device.create_graphics_pipeline(.{
-            .sType               = c.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-            .stageCount          = shader_stage_infos.len,
-            .pStages             = shader_stage_infos.ptr,
-            .pVertexInputState   = &vertex_input_state_info,
+            .sType = c.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+            .stageCount = shader_stage_infos.len,
+            .pStages = shader_stage_infos.ptr,
+            .pVertexInputState = &vertex_input_state_info,
             .pInputAssemblyState = &input_assembly_state_info,
-            .pViewportState      = &viewport_state_info,
+            .pViewportState = &viewport_state_info,
             .pRasterizationState = &rasterizer_state_info,
-            .pMultisampleState   = &multisampling_state_info,
-            .pDynamicState       = &dynamic_state_info,
-            .pColorBlendState    = &color_blend_state_info,
-            .pDepthStencilState  = &depth_stencil_state_info,
-            .layout              = layout,
-            .renderPass          = render_pass,
-            .subpass             = 0,
-            .basePipelineHandle  = null,
+            .pMultisampleState = &multisampling_state_info,
+            .pDynamicState = &dynamic_state_info,
+            .pColorBlendState = &color_blend_state_info,
+            .pDepthStencilState = &depth_stencil_state_info,
+            .layout = layout,
+            .renderPass = render_pass,
+            .subpass = 0,
+            .basePipelineHandle = null,
         });
 
         return .{
-            .handle       = handle,
-            .layout       = layout,
-            .format       = format,
-            .render_pass  = render_pass,
+            .handle = handle,
+            .layout = layout,
+            .format = format,
+            .render_pass = render_pass,
             .depth_format = depth_format,
-            .descriptor   = descriptor,
+            .descriptor = descriptor,
         };
     }
 

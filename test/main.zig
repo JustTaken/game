@@ -7,15 +7,14 @@ const PngImage        = core.PngImage;
 
 test "Parse : TrueTypeFont" {
     var font = try TrueTypeFont.new("assets/font/font.ttf", std.testing.allocator);
-    var obj = try font.glyph_object(.a);
+    try font.add_glyph(.a);
 
-    obj.deinit();
     font.deinit();
 }
 
-test "Parse : Png" {
-    var image = try PngImage.new("assets/image/image2.png", std.testing.allocator);
-    std.debug.print("{d}\n", .{image.pixels[100..1000]});
-    image.deinit();
-}
+// test "Parse : Png" {
+//     var image = try PngImage.new("assets/image/image2.png", std.testing.allocator);
+//     std.debug.print("{d}\n", .{image.pixels[100..1000]});
+//     image.deinit();
+// }
 

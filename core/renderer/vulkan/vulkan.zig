@@ -1,39 +1,39 @@
-const std                = @import("std");
+const std = @import("std");
 
-const _container         = @import("../../container/container.zig");
-const _platform          = @import("../../platform/platform.zig");
-const _config            = @import("../../util/configuration.zig");
+const _container = @import("../../container/container.zig");
+const _platform = @import("../../platform/platform.zig");
+const _config = @import("../../util/configuration.zig");
 
-const _sync              = @import("sync.zig");
-const _data              = @import("data.zig");
-const _window            = @import("window.zig");
-const _device            = @import("device.zig");
-const _instance          = @import("instance.zig");
-const _sawpchain         = @import("swapchain.zig");
-const _command_pool      = @import("command_pool.zig");
+const _sync = @import("sync.zig");
+const _data = @import("data.zig");
+const _window = @import("window.zig");
+const _device = @import("device.zig");
+const _instance = @import("instance.zig");
+const _sawpchain = @import("swapchain.zig");
+const _command_pool = @import("command_pool.zig");
 const _graphics_pipeline = @import("graphics_pipeline.zig");
 
-const Sync               = _sync.Sync;
-const Data               = _data.Data;
-const Device             = _device.Device;
-const Window             = _window.Window;
-const Instance           = _instance.Instance;
-const Swapchain          = _sawpchain.Swapchain;
-const CommandPool        = _command_pool.CommandPool;
-const GraphicsPipeline   = _graphics_pipeline.GraphicsPipeline;
+const Sync = _sync.Sync;
+const Data = _data.Data;
+const Device = _device.Device;
+const Window = _window.Window;
+const Instance = _instance.Instance;
+const Swapchain = _sawpchain.Swapchain;
+const CommandPool = _command_pool.CommandPool;
+const GraphicsPipeline = _graphics_pipeline.GraphicsPipeline;
 
-const Container          = _container.Container;
-const Allocator          = std.mem.Allocator;
-const Platform           = _platform.Platform;
+const Container = _container.Container;
+const Allocator = std.mem.Allocator;
+const Platform = _platform.Platform;
 
 pub const Vulkan = struct {
-    sync:              Sync,
-    data:              Data,
-    window:            Window,
-    device:            Device,
-    instance:          Instance,
-    swapchain:         Swapchain,
-    command_pool:      CommandPool,
+    sync: Sync,
+    data: Data,
+    window: Window,
+    device: Device,
+    instance: Instance,
+    swapchain: Swapchain,
+    command_pool: CommandPool,
     graphics_pipeline: GraphicsPipeline,
 
     pub fn new(comptime P: type, platform: P, allocator: Allocator) !Vulkan {
@@ -47,13 +47,13 @@ pub const Vulkan = struct {
         const data = try Data.new(device, &graphics_pipeline.descriptor, command_pool, allocator);
 
         return .{
-            .sync              = sync,
-            .data              = data,
-            .device            = device,
-            .window            = window,
-            .swapchain         = swapchain,
-            .instance          = instance,
-            .command_pool      = command_pool,
+            .sync = sync,
+            .data = data,
+            .device = device,
+            .window = window,
+            .swapchain = swapchain,
+            .instance = instance,
+            .command_pool = command_pool,
             .graphics_pipeline = graphics_pipeline,
         };
     }

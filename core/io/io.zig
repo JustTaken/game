@@ -1,11 +1,11 @@
-const std          = @import("std");
+const std = @import("std");
 
-const _math        = @import("../math/math.zig");
+const _math = @import("../math/math.zig");
 const _collections = @import("../collections/collections.zig");
 
-const ArrayList    = _collections.ArrayList;
-const Vec          = _math.Vec;
-const Allocator    = std.mem.Allocator;
+const ArrayList = _collections.ArrayList;
+const Vec = _math.Vec;
+const Allocator = std.mem.Allocator;
 
 pub const Io = struct {
     pub const Reader = struct {

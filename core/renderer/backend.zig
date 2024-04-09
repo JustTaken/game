@@ -1,33 +1,33 @@
-const std            = @import("std");
+const std = @import("std");
 
-const _vulkan        = @import("vulkan/vulkan.zig");
-const _container     = @import("../container/container.zig");
-const _event         = @import("../event/event.zig");
-const _platform      = @import("../platform/platform.zig");
+const _vulkan = @import("vulkan/vulkan.zig");
+const _container = @import("../container/container.zig");
+const _event = @import("../event/event.zig");
+const _platform = @import("../platform/platform.zig");
 const _configuration = @import("../util/configuration.zig");
 
-const Vulkan         = _vulkan.Vulkan;
-const Container      = _container.Container;
-const Emiter         = _event.EventSystem.Event.Emiter;
+const Vulkan = _vulkan.Vulkan;
+const Container = _container.Container;
+const Emiter = _event.EventSystem.Event.Emiter;
 
-const Compositor     = _platform.Compositor;
-const Platform       = _platform.Platform;
+const Compositor = _platform.Compositor;
+const Platform = _platform.Platform;
 
-const Allocator      = std.mem.Allocator;
+const Allocator = std.mem.Allocator;
 
 pub fn Backend(comptime compositor: Compositor, comptime renderer: Renderer) type {
     return struct {
-        renderer: T,
+        renderer: R,
         platform: P,
 
         const Self = @This();
 
-        pub const T = Renderer.get(renderer);
+        pub const R = Renderer.get(renderer);
         pub const P = Platform(compositor);
 
         pub fn new(allocator: Allocator) !Self {
             const platform = try P.init();
-            const backend_renderer = try T.new(P, platform, allocator);
+            const backend_renderer = try R.new(P, platform, allocator);
 
             return .{
                 .renderer = backend_renderer,

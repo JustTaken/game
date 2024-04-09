@@ -2,7 +2,7 @@ const std = @import("std");
 const _io = @import("../io/io.zig");
 const _math = @import("../math/math.zig");
 
-const c   = @cImport({ @cInclude("zlib.h"); });
+const c = @cImport({ @cInclude("zlib.h"); });
 const abs = _math.abs;
 
 const Allocator = std.mem.Allocator;

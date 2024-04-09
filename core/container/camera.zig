@@ -1,47 +1,47 @@
-const std           = @import("std");
+const std = @import("std");
 
-const _math         = @import("../math/math.zig");
-const _config       = @import("../util/configuration.zig");
-const _event        = @import("../event/event.zig");
-const _platform     = @import("../platform/platform.zig");
+const _math = @import("../math/math.zig");
+const _config = @import("../util/configuration.zig");
+const _event = @import("../event/event.zig");
+const _platform = @import("../platform/platform.zig");
 
-const KeyMap        = _platform.KeyMap;
-const EventSystem   = _event.EventSystem;
-const Argument      = EventSystem.Argument;
-const Listener      = EventSystem.Event.Listener;
+const KeyMap = _platform.KeyMap;
+const EventSystem = _event.EventSystem;
+const Argument = EventSystem.Argument;
+const Listener = EventSystem.Event.Listener;
 
-const Vec           = _math.Vec;
-const Matrix        = _math.Matrix;
+const Vec = _math.Vec;
+const Matrix = _math.Matrix;
 
 const configuration = _config.Configuration;
 
 pub const Camera = struct {
     proj: [4][4]f32,
     view: [4][4]f32,
-    eye:  Vec,
+    eye: Vec,
 
-    changed:  bool = true,
+    changed: bool = true,
     clicking: bool = false,
-    aspect:   f32,
+    aspect: f32,
 
     const Direction = enum { X, Y, Z };
 
     const y_rotation: [4][4]f32 = .{
-        [4]f32 {   0.0, 0.0, 1.0, 0.0 },
-        [4]f32 {   0.0, 1.0, 0.0, 0.0 },
+        [4]f32 { 0.0, 0.0, 1.0, 0.0 },
+        [4]f32 { 0.0, 1.0, 0.0, 0.0 },
         [4]f32 { - 1.0, 0.0, 0.0, 0.0 },
-        [4]f32 {   0.0, 0.0, 0.0, 1.0 },
+        [4]f32 { 0.0, 0.0, 0.0, 1.0 },
     };
 
-    const fov:  f32 = std.math.pi * 0.25;
+    const fov: f32 = std.math.pi * 0.25;
     const near: f32 = 0.10;
-    const far:  f32 = 10.0;
+    const far: f32 = 10.0;
 
     pub fn init(eye: Vec) Camera {
-        const right_vec: Vec = .{.x = 1.0, .y =   0.0, .z = 0.0};
-        const up_vec:    Vec = .{.x = 0.0, .y = - 1.0, .z = 0.0};
-        const direction: Vec = .{.x = 0.0, .y =   0.0, .z = 1.0};
-        const aspect:    f32 = @as( f32, @floatFromInt(configuration.default_width)) / @as(f32, @floatFromInt(configuration.default_height));
+        const right_vec: Vec = .{.x = 1.0, .y = 0.0, .z = 0.0};
+        const up_vec: Vec = .{.x = 0.0, .y = - 1.0, .z = 0.0};
+        const direction: Vec = .{.x = 0.0, .y = 0.0, .z = 1.0};
+        const aspect: f32 = @as( f32, @floatFromInt(configuration.default_width)) / @as(f32, @floatFromInt(configuration.default_height));
 
         return .{
             .eye = eye,
@@ -62,13 +62,13 @@ pub const Camera = struct {
             const e = @as(KeyMap, @enumFromInt(k));
 
             switch (e) {
-                .S       => self.move(- 0.1, .Z),
-                .W       => self.move(  0.1, .Z),
-                .A       => self.move(- 0.1, .X),
-                .D       => self.move(  0.1, .X),
-                .Space   => self.move(- 0.1, .Y),
-                .Control => self.move(  0.1, .Y),
-                else     => { continue; },
+                .S => self.move(- 0.1, .Z),
+                .W => self.move( 0.1, .Z),
+                .A => self.move(- 0.1, .X),
+                .D => self.move( 0.1, .X),
+                .Space => self.move(- 0.1, .Y),
+                .Control => self.move( 0.1, .Y),
+                else => { continue; },
             }
 
             self.changed = true;
@@ -102,9 +102,9 @@ pub const Camera = struct {
         };
 
         right_vec = right_vec.sum(right_vec.mult(y_rotation).scale(-x)).normalize();
-        up_vec    = up_vec.sum(direction.scale(-y)).normalize();
+        up_vec = up_vec.sum(direction.scale(-y)).normalize();
         direction = up_vec.cross(right_vec);
-        up_vec    = right_vec.cross(direction);
+        up_vec = right_vec.cross(direction);
 
         self.view = .{
             [4]f32 { right_vec.x, up_vec.x, direction.x, 0.0 },
@@ -125,8 +125,8 @@ pub const Camera = struct {
     }
 
     pub fn listen_resize(self: *Camera, argument: Argument) bool {
-        self.aspect  = @as(f32, @floatFromInt(argument.u32[0])) / @as(f32, @floatFromInt(argument.u32[1]));
-        self.proj    = Matrix.perspective(fov, self.aspect, near, far);
+        self.aspect = @as(f32, @floatFromInt(argument.u32[0])) / @as(f32, @floatFromInt(argument.u32[1]));
+        self.proj = Matrix.perspective(fov, self.aspect, near, far);
         self.changed = true;
 
         return false;

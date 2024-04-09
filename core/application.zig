@@ -1,37 +1,37 @@
-const std            = @import("std");
+const std = @import("std");
 
-const _container     = @import("container/container.zig");
-const _event         = @import("event/event.zig");
-const _backend       = @import("renderer/backend.zig");
-const _platform      = @import("platform/platform.zig");
+const _container = @import("container/container.zig");
+const _event = @import("event/event.zig");
+const _backend = @import("renderer/backend.zig");
+const _platform = @import("platform/platform.zig");
 const _configuration = @import("util/configuration.zig");
 
-const EventSystem    = _event.EventSystem;
-const Backend        = _backend.Backend;
-const Renderer       = _backend.Renderer;
-const Platform       = _platform.Platform;
-const Compositor     = _platform.Compositor;
-const Container      = _container.Container;
+const EventSystem = _event.EventSystem;
+const Backend = _backend.Backend;
+const Renderer = _backend.Renderer;
+const Platform = _platform.Platform;
+const Compositor = _platform.Compositor;
+const Container = _container.Container;
 
-const Allocator      = std.mem.Allocator;
-const logger         = _configuration.Configuration.logger;
+const Allocator = std.mem.Allocator;
+const logger = _configuration.Configuration.logger;
 
 pub fn Application(comptime compositor: Compositor, comptime renderer: Renderer) type {
     return struct {
-        backend:      Backend(compositor, renderer),
-        container:    Container,
+        backend: Backend(compositor, renderer),
+        container: Container,
         event_system: EventSystem,
 
         const Self = @This();
 
         pub fn new(allocator: Allocator) !Self {
-            const container:    Container = try Container.new(allocator);
-            const backend:      Backend(compositor, renderer) = try Backend(compositor, renderer).new(allocator);
+            const container: Container = try Container.new(allocator);
+            const backend: Backend(compositor, renderer) = try Backend(compositor, renderer).new(allocator);
             const event_system: EventSystem = try EventSystem.new(allocator);
 
             return .{
-                .container    = container,
-                .backend      = backend,
+                .container = container,
+                .backend = backend,
                 .event_system = event_system,
             };
         }
