@@ -7,5 +7,6 @@ layout(location = 0) out vec4 out_color;
 layout(set = 1, binding = 0) uniform sampler2D texture_sampler;
 
 void main() {
-  out_color = texture(texture_sampler, texture_coords);
+    vec4 text = texture(texture_sampler, texture_coords);
+    out_color = frag_color * text.r;
 }

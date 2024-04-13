@@ -5,6 +5,7 @@ const _event = @import("event/event.zig");
 const _backend = @import("renderer/backend.zig");
 const _platform = @import("platform/platform.zig");
 const _configuration = @import("util/configuration.zig");
+const _allocator = @import("util/allocator.zig");
 
 const EventSystem = _event.EventSystem;
 const Backend = _backend.Backend;
@@ -13,7 +14,7 @@ const Platform = _platform.Platform;
 const Compositor = _platform.Compositor;
 const Container = _container.Container;
 
-const Allocator = std.mem.Allocator;
+const Allocator = _allocator.Allocator;
 const logger = _configuration.Configuration.logger;
 
 pub fn Application(comptime compositor: Compositor, comptime renderer: Renderer) type {
@@ -24,7 +25,8 @@ pub fn Application(comptime compositor: Compositor, comptime renderer: Renderer)
 
         const Self = @This();
 
-        pub fn new(allocator: Allocator) !Self {
+        pub fn new(allocator: *Allocator) !Self {
+            defer allocator.usage();
             const container: Container = try Container.new(allocator);
             const backend: Backend(compositor, renderer) = try Backend(compositor, renderer).new(allocator);
             const event_system: EventSystem = try EventSystem.new(allocator);

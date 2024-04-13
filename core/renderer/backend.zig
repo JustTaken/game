@@ -5,6 +5,7 @@ const _container = @import("../container/container.zig");
 const _event = @import("../event/event.zig");
 const _platform = @import("../platform/platform.zig");
 const _configuration = @import("../util/configuration.zig");
+const _allocator = @import("../util/allocator.zig");
 
 const Vulkan = _vulkan.Vulkan;
 const Container = _container.Container;
@@ -13,7 +14,7 @@ const Emiter = _event.EventSystem.Event.Emiter;
 const Compositor = _platform.Compositor;
 const Platform = _platform.Platform;
 
-const Allocator = std.mem.Allocator;
+const Allocator = _allocator.Allocator;
 
 pub fn Backend(comptime compositor: Compositor, comptime renderer: Renderer) type {
     return struct {
@@ -25,7 +26,7 @@ pub fn Backend(comptime compositor: Compositor, comptime renderer: Renderer) typ
         pub const R = Renderer.get(renderer);
         pub const P = Platform(compositor);
 
-        pub fn new(allocator: Allocator) !Self {
+        pub fn new(allocator: *Allocator) !Self {
             const platform = try P.init();
             const backend_renderer = try R.new(P, platform, allocator);
 

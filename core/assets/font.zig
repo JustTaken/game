@@ -5,92 +5,54 @@ const _collections = @import("../collections/collections.zig");
 const _configuration = @import("../util/configuration.zig");
 const _math = @import("../math/math.zig");
 const _object = @import("object.zig");
+const _allocator = @import("../util/allocator.zig");
 
 const Vec = _math.Vec;
 
 const ArrayList = _collections.ArrayList;
-const Allocator = std.mem.Allocator;
+const Allocator = _allocator.Allocator;
 const Reader = _io.Io.Reader;
 const Object = _object.ObjectHandler.Object;
 
-pub const FontManager = struct {
-    texture: []const u8,
-    glyphs: [@typeInfo(Type).Enum.fields.len]Glyph,
+const pow = _math.pow;
+const fac = _math.fac;
+const or_zero = _math.or_zero;
 
-    width: u32,
-    height: u32,
-
-    allocator: Allocator,
-
-    const Glyph = struct {
-        texture_coords: [4][2]f32,
-        vertex: [4][3]f32,
-        index: [6]u16,
-    };
-
-    pub fn new(glyphs: ArrayList(TrueTypeFont.Glyph), allocator: Allocator) !FontManager {
-        var objects: [@typeInfo(Type).Enum.fields.len]Glyph = undefined;
-
-        for (glyphs.items) |glyph| {
-            objects[@intFromEnum(glyph.code_point)] = .{
-                .texture_coords = glyph.texture_coords,
-                .vertex = glyph.vertex,
-                .index = glyph.index,
-            };
-        }
-
-        return .{
-            .texture = glyphs.items[0].texture,
-            .width = glyphs.items[0].width,
-            .height = glyphs.items[0].height,
-            .glyphs = objects,
-            .allocator = allocator,
-        };
-    }
-
-    pub fn deinit(self: *FontManager) void {
-        self.allocator.free(self.texture);
-    }
-};
+const interpolations: u32 = 4;
 
 pub const Type = enum(u8) {
-    a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z,
-    space, comma, coulon, semi_coulon,
+    a,// b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z,
+    // space, comma, coulon, semi_coulon,
 
     pub fn code(self: Type) u8 {
         return switch (self) {
-            .space => ' ',
-            .comma => ',',
-            .coulon => '.',
-            .semi_coulon => ';',
+            // .space => ' ',
+            // .comma => ',',
+            // .coulon => '.',
+            // .semi_coulon => ';',
             else => @intFromEnum(self) + 97,
         };
     }
 };
 
 pub const TrueTypeFont = struct {
-    glyphs: ArrayList(Glyph),
-    tables: []Table,
-    map_table: Cmap,
-    header: Header,
-    allocator: Allocator,
-    path: []const u8,
+    texture: []const u8,
+    glyphs: [@typeInfo(Type).Enum.fields.len]Glyph,
 
-    num_tables: u32,
-    scalar_type: u32,
-    range_shift: u32,
-    search_range: u32,
-    entry_selector: u32,
+    size: u8,
+    allocator: *Allocator,
+
+    width: u32,
+    height: u32,
 
     const Glyph = struct {
         texture: []const u8,
         texture_coords: [4][2]f32,
         vertex: [4][3]f32,
         index: [6]u16,
-        allocator: Allocator,
+
         width: u32,
         height: u32,
-        code_point: Type,
 
         const Point = struct {
             x: i16 = 0,
@@ -98,156 +60,194 @@ pub const TrueTypeFont = struct {
             on_curve: bool,
         };
 
-        fn simple(glyph_points: [5]i16, reader: Reader, allocator: Allocator, code_point: Type) !Glyph {
+        fn calculate_line(from: [2]u32, to: [2]u32, width: u32, height: u32, line: *[]u8) void {
+            const first_x = @min(from[0], to[0]);
+            const last_x = from[0] + to[0] - first_x;
+
+            const first_y = @min(from[1], to[1]);
+            const last_y = from[1] + to[1] - first_y;
+
+            const iter_max = @max(last_x - first_x, last_y - first_y);
+            if (iter_max == 0) return;
+
+            const x_m = @as(f32, @floatFromInt(@as(i32, @intCast(to[0])) - @as(i32, @intCast(from[0])))) / @as(f32, @floatFromInt(iter_max));
+            const y_m = @as(f32, @floatFromInt(@as(i32, @intCast(to[1])) - @as(i32, @intCast(from[1])))) / @as(f32, @floatFromInt(iter_max));
+
+            for (0..iter_max) |j| {
+                const x: u32 = @as(u32, @intFromFloat(@as(f32, @floatFromInt(from[0])) + @round(@as(f32, @floatFromInt(j)) * x_m)));
+                const y: u32 = @as(u32, @intFromFloat(@as(f32, @floatFromInt(from[1])) + @round(@as(f32, @floatFromInt(j)) * y_m)));
+
+                if (x >= width or y >= height) continue;
+
+                line.*[x + y * width] = 255;
+            }
+        }
+
+        fn simple(glyph_points: [5]i16, reader: Reader, factor: f32, allocator: *Allocator) !Glyph {
             const number_of_contours: u32 = @intCast(glyph_points[0]);
             if (number_of_contours == 0) return error.NoCountour;
 
-            const on_curve: u8 = 0x01;
-            const x_is_byte: u8 = 0x02;
-            const y_is_byte: u8 = 0x04;
-            const repeat: u8 = 0x08;
-            const x_delta: u8 = 0x10;
-            const y_delta: u8 = 0x20;
+            var contour_ends = try allocator.alloc(u16, number_of_contours);
+            defer allocator.free(contour_ends);
 
-            var contour_ends = try ArrayList(u16).init(allocator, number_of_contours);
-            defer contour_ends.deinit();
+            var points_len: u32 = 0;
+            for (0..number_of_contours) |i| {
+                const contour_end: u16 = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
 
-            var max: u32 = 0;
-            for (0..number_of_contours) |_| {
-                const contour_end = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
-
-                if (contour_end > max) {
-                    max = contour_end;
+                if (contour_end + 1 > points_len) {
+                    points_len = contour_end + 1;
                 }
 
-                try contour_ends.push(@intCast(contour_end));
+                contour_ends[i] = contour_end;
             }
-
-            var flags = try ArrayList(u8).init(allocator, max + 1);
-            defer flags.deinit();
-
-            var points = try ArrayList(Point).init(allocator, max + 1);
-            defer points.deinit();
 
             const off = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
             const pos = reader.pos();
 
             reader.seek(off + pos);
 
+            const on_curve: u8 = 0x01;
+            const x_is_short: u8 = 0x02;
+            const y_is_short: u8 = 0x04;
+            const repeat: u8 = 0x08;
+            const x_is_same: u8 = 0x10;
+            const y_is_same: u8 = 0x20;
+
+            var flags = try allocator.alloc(u8, points_len);
+            defer allocator.free(flags);
+
             var i: u32 = 0;
-            while (i < max + 1) {
-                const flag = (try reader.read(1))[0];
+            while (i < points_len) : (i += 1) {
+                const flag: u8 = @bitCast(try reader.read(1));
 
-                try flags.push(flag);
-                try points.push(.{ .on_curve = flag & on_curve > 0 });
+                if (flag & repeat != 0) {
+                    const repeat_count: u8 = @bitCast(try reader.read(1));
+                    @memset(flags[i..i + repeat_count + 1], flag);
 
-                if ((flag & repeat) != 0) {
-                    var repeat_count = (try reader.read(1))[0];
                     i += repeat_count;
+                } else {
+                    flags[i] = flag;
+                }
+            }
 
-                    while (repeat_count > 0) {
-                        try flags.push(flag);
-                        try points.push(.{ .on_curve = flag & on_curve > 0 });
+            var points = try allocator.alloc(Point, points_len);
+            defer allocator.free(points);
 
-                        repeat_count -= 1;
+            var x_value: i16 = 0;
+            for (0..points_len) |k| {
+                if (flags[k] & x_is_short != 0) {
+                    const value: u8 = @bitCast(try reader.read(1));
+
+                    if (flags[k] & x_is_same != 0) x_value += value
+                    else x_value -= value;
+                } else {
+                    if (flags[k] & x_is_same == 0) x_value += @byteSwap(@as(i16, @bitCast(try reader.read(2))));
+                }
+
+                points[k].x = @as(i16, @intFromFloat(@floor(@as(f32, @floatFromInt(x_value)) * factor)));
+                points[k].on_curve = flags[k] & on_curve != 0;
+            }
+
+            var y_value: i16 = 0;
+            for (0..points_len) |k| {
+                if (flags[k] & y_is_short != 0) {
+                    const value: u8 = @bitCast(try reader.read(1));
+
+                    if (flags[k] & y_is_same != 0) y_value += value
+                    else y_value -= value;
+                } else {
+                    if (flags[k] & y_is_same == 0) y_value += @byteSwap(@as(i16, @bitCast(try reader.read(2))));
+                }
+
+                points[k].y = @as(i16, @intFromFloat(@floor(@as(f32, @floatFromInt(y_value)) * factor)));
+            }
+
+            const width = @as(u32, or_zero(glyph_points[3] - glyph_points[1])) + 1;
+            const height = @as(u32, or_zero(glyph_points[4] - glyph_points[2])) + 1;
+
+            var texture = try allocator.alloc(u8, width * height);
+            @memset(texture, 0);
+            var out_points: [20][2]u32 = undefined;
+
+            var contour_start: u16 = 0;
+            for (contour_ends) |contour_end| {
+                for (contour_start..contour_end + 1) |point| {
+                    var index_of_next = if (point == contour_end) contour_start else point + 1;
+                    if (!points[point].on_curve) continue;
+
+                    var out_points_count: u32 = 0;
+
+                    while (!points[index_of_next].on_curve) {
+                        out_points[out_points_count] = .{
+                            or_zero(points[index_of_next].x - glyph_points[1]),
+                            or_zero(points[index_of_next].y - glyph_points[2])
+                        };
+
+                        out_points_count += 1;
+
+                        if (index_of_next >= contour_end) index_of_next = contour_start
+                        else index_of_next += 1;
+                    }
+
+                    const x0: u32 = or_zero(points[point].x - glyph_points[1]);
+                    const y0: u32 = or_zero(points[point].y - glyph_points[2]);
+
+                    const x1: u32 = or_zero(points[index_of_next].x - glyph_points[1]);
+                    const y1: u32 = or_zero(points[index_of_next].y - glyph_points[2]);
+
+                    var previous_x = x0;
+                    var previous_y = y0;
+
+                    if (out_points_count == 0) {
+                        calculate_line(.{ x0, y0 }, .{ x1, y1 }, width, height, &texture);
+                    } else {
+                        var coeficients: [22][2]u32 = undefined;
+                        coeficients[0] = .{ x0, y0 };
+                        @memcpy(coeficients[1..out_points_count + 1], out_points[0..out_points_count]);
+                        coeficients[out_points_count + 1] = .{ x1, y1};
+
+                        const len = out_points_count  + 2 - 1;
+
+                        for (1..interpolations + 1) |iter| {
+                            const t = @as(f32, @floatFromInt(iter)) / @as(f32, @floatFromInt(interpolations));
+
+                            var ptx: u32 = 0;
+                            var pty: u32 = 0;
+
+                            for (0..len + 1) |index| {
+                                const bin = @as(f32, @floatFromInt(fac(len))) / @as(f32, @floatFromInt(fac(index) * fac(len - index)));
+                                const tm = pow(1 - t, @as(f32, @floatFromInt(len - index)));
+                                const tt = pow(t, @as(f32, @floatFromInt(index)));
+
+                                ptx += @as(u32, @intFromFloat(@round(bin * tm * tt * @as(f32, @floatFromInt(coeficients[index][0])))));
+                                pty += @as(u32, @intFromFloat(@round(bin * tm * tt * @as(f32, @floatFromInt(coeficients[index][1])))));
+                            }
+
+                            calculate_line(.{previous_x, previous_y}, .{ptx, pty}, width, height, &texture);
+
+                            previous_x = ptx;
+                            previous_y = pty;
+                        }
                     }
                 }
 
-                i += 1;
+                contour_start = contour_end + 1;
             }
 
             const index: [6]u16 = .{0, 1, 2, 2, 1, 3};
             const texture_coords: [4][2]f32 = .{
-                .{0, 0},
-                .{1, 0},
                 .{0, 1},
                 .{1, 1},
+                .{0, 0},
+                .{1, 0},
             };
+
             const vertex: [4][3]f32 = .{
-                .{-1, 1, 0},
-                .{1, 1, 0},
-                .{-1, -1, 0},
-                .{1, -1, 0},
+                .{-factor, factor, 0},
+                .{factor, factor, 0},
+                .{-factor, -factor, 0},
+                .{factor, -factor, 0},
             };
-
-            var values: [2]i16 = .{ 0, 0 };
-            for (0..max + 1) |k| {
-                points.items[k].x = blk: {
-                    if (flags.items[k] & x_is_byte != 0) {
-                        const v = (try reader.read(1))[0];
-
-                        if (flags.items[k] & x_delta != 0) values[0] += v
-                        else values[0] -= v;
-                    } else if (~flags.items[k] & x_delta != 0) {
-                        values[0] += @bitCast(@as(u16, @intCast(@byteSwap(@as(u16, @bitCast(try reader.read(2)))))));
-                    }
-
-                    break :blk values[0];
-                };
-            }
-
-            for (0..max + 1) |k| {
-                points.items[k].y = blk: {
-                    if (flags.items[k] & y_is_byte != 0) {
-                        const v = (try reader.read(1))[0];
-
-                        if (flags.items[k] & y_delta != 0) values[1] += v
-                        else values[1] -= v;
-                    } else if (~flags.items[k] & y_delta != 0) {
-                        values[1] += @bitCast(@as(u16, @intCast(@byteSwap(@as(u16, @bitCast(try reader.read(2)))))));
-                    }
-
-                    break :blk values[1];
-                };
-
-            }
-
-            const width: u32 = @intCast(glyph_points[3] - glyph_points[1]);
-            const height: u32 = @intCast(glyph_points[4] - glyph_points[2]);
-
-            const texture = try allocator.alloc(u8, (width + 1) * (height + 1));
-            @memset(texture, 0);
-
-            for (0..points.items.len - 1) |p| {
-                if (!points.items[p].on_curve) continue;
-                const xp: u32 = @intCast(points.items[p].x - glyph_points[1]);
-                const yp: u32 = @intCast(points.items[p].y - glyph_points[2]);
-                @memset(texture[(xp + yp * width)..(xp + yp * width + 1)], 255);
-
-                // const x0 = points.items[p].x - glyph_points[1];
-                // const x1 = points.items[p + 1].x - glyph_points[1];
-                // const y0 = points.items[p].y - glyph_points[2];
-                // const y1 = points.items[p + 1].y - glyph_points[2];
-
-                // const dx = x1 - x0;
-                // const m = @as(f32, @floatFromInt(y1 - y0)) / @as(f32, @floatFromInt(dx));
-                // const negative = dx < 0;
-
-                // for (0..@intCast(if (negative) - dx else dx)) |k| {
-                // const x: u32 = @intCast(x0 + if (negative) - @as(i16, @intCast(k)) else @as(i16, @intCast(k)));
-                // const y: u32 = @intCast(y0 + @as(i16, @intFromFloat(@floor(m * @as(f32, @floatFromInt(if (negative) - @as(i16, @intCast(k)) else @as(i16, @intCast(k))))))));
-
-                // @memset(texture[x + y * width..x + (y * width + 1)], 255);
-                // }
-            }
-
-            // const line_size = width * 4;
-
-            // for (0..height + 1) |ii| {
-            // var filling = false;
-            // const line_pos = ii * line_size;
-
-            // for (0..width + 1) |jj| {
-            // const coloumn_pos = jj + line_pos;
-
-            // if (texture[coloumn_pos] == 255) {
-            // filling = !filling;
-            // continue;
-            // }
-
-            // if (filling) texture[coloumn_pos] = 255;
-            // }
-            // }
 
             return .{
                 .width = width,
@@ -256,12 +256,10 @@ pub const TrueTypeFont = struct {
                 .index = index,
                 .texture = texture,
                 .texture_coords = texture_coords,
-                .allocator = allocator,
-                .code_point = code_point,
             };
         }
 
-        fn new(tables: []const Table, reader: Reader, header: Header, allocator: Allocator, index: usize, code_point: Type) !Glyph {
+        fn new(tables: []const Table, reader: Reader, header: Header, size: u8, index: usize, allocator: *Allocator) !Glyph {
             const offset: u32 = blk: {
                 var off: u32 = 0;
 
@@ -278,24 +276,25 @@ pub const TrueTypeFont = struct {
 
             reader.seek(offset);
 
-            const number_of_contours = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
-            const x_min = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
-            const y_min = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
-            const x_max = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
-            const y_max = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+            const number_of_contours = @byteSwap(@as(i16, @bitCast(try reader.read(2))));
+            const x_min = @byteSwap(@as(i16, @bitCast(try reader.read(2))));
+            const y_min = @byteSwap(@as(i16, @bitCast(try reader.read(2))));
+            const x_max = @byteSwap(@as(i16, @bitCast(try reader.read(2))));
+            const y_max = @byteSwap(@as(i16, @bitCast(try reader.read(2))));
 
+            const factor: f32 = @as(f32, @floatFromInt(size)) / @as(f32, @floatFromInt(header.units_pem));
             const points: [5]i16 = .{
-                @bitCast(@as(u16, @intCast(number_of_contours))),
-                @bitCast(@as(u16, @intCast(x_min))),
-                @bitCast(@as(u16, @intCast(y_min))),
-                @bitCast(@as(u16, @intCast(x_max))),
-                @bitCast(@as(u16, @intCast(y_max))),
+                number_of_contours,
+                @as(i16, @intFromFloat(@round(@as(f32, @floatFromInt(x_min)) * factor))),
+                @as(i16, @intFromFloat(@round(@as(f32, @floatFromInt(y_min)) * factor))),
+                @as(i16, @intFromFloat(@round(@as(f32, @floatFromInt(x_max)) * factor))),
+                @as(i16, @intFromFloat(@round(@as(f32, @floatFromInt(y_max)) * factor))),
             };
 
             if (points[0] < 0) {
                 return error.CouldNotInitializeGlyph;
             } else {
-                return try simple(points, reader, allocator, code_point);
+                return try simple(points, reader, factor, allocator);
             }
         }
     };
@@ -326,8 +325,8 @@ pub const TrueTypeFont = struct {
             const magic_number = @byteSwap(@as(u32, @bitCast(try reader.read(4))));
             const flags = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
             const units_pem = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
-            const created = get_date(try reader.read(8));
-            const modified = get_date(try reader.read(8));
+            const created = @byteSwap(@as(u64, @bitCast(try reader.read(8))));
+            const modified = @byteSwap(@as(u64, @bitCast(try reader.read(8))));
             const xMin = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
             const xMax = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
             const yMin = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
@@ -369,7 +368,7 @@ pub const TrueTypeFont = struct {
         glyph_id: ArrayList(u32),
         format: u8,
 
-        fn format4(reader: Reader, allocator: Allocator) !Cmap {
+        fn format4(reader: Reader, allocator: *Allocator) !Cmap {
             const length = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
             const language = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
             const segment_count = @byteSwap(@as(u16, @bitCast(try reader.read(2)))) / 2;
@@ -409,7 +408,7 @@ pub const TrueTypeFont = struct {
             };
         }
 
-        fn format12(reader: Reader, allocator: Allocator) !Cmap {
+        fn format12(reader: Reader, allocator: *Allocator) !Cmap {
             if (@byteSwap(@as(u16, @bitCast(try reader.read(2)))) != 0) return error.ReservedPadNotZero;
 
             const length = @byteSwap(@as(u32, @bitCast(try reader.read(4))));
@@ -469,7 +468,7 @@ pub const TrueTypeFont = struct {
             return error.GlyphIndexNotFound;
         }
 
-        fn new(reader: Reader, allocator: Allocator) !Cmap {
+        fn new(reader: Reader, allocator: *Allocator) !Cmap {
             const format = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
 
             if (format == 4) {
@@ -530,7 +529,9 @@ pub const TrueTypeFont = struct {
         }
     };
 
-    pub fn new(file_path: []const u8, allocator: Allocator) !TrueTypeFont {
+    pub fn new(file_path: []const u8, size: u8, allocator: *Allocator) !TrueTypeFont {
+        const start = try std.time.Instant.now();
+
         const reader = try Reader.new(file_path);
         defer reader.shutdown();
 
@@ -538,13 +539,18 @@ pub const TrueTypeFont = struct {
         var glyphs_count: u32 = undefined;
         var map_table: Cmap = undefined;
 
-        const scalar_type = @byteSwap(@as(u32, @bitCast(try reader.read(4))));
-        const num_tables = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
-        const search_range = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
-        const entry_selector = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
-        const range_shift = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+        const position = reader.pos();
+        reader.seek(position + 4);
 
-        var tables = try allocator.alloc(Table, @typeInfo(Table.Type).Enum.fields.len);
+        // const scalar_type = @byteSwap(@as(u32, @bitCast(try reader.read(4))));
+        const num_tables = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+
+        reader.seek(position + 12);
+        // const search_range = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+        // const entry_selector = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+        // const range_shift = @byteSwap(@as(u16, @bitCast(try reader.read(2))));
+
+        var tables: [@typeInfo(Table.Type).Enum.fields.len]Table = undefined;
         const pos = reader.pos();
 
         for (0..num_tables) |k| {
@@ -584,8 +590,7 @@ pub const TrueTypeFont = struct {
                         if (id != 0) continue;
 
                         reader.seek(table.offset + offset);
-                        map_table = Cmap.new(reader, allocator) catch |e| {
-                            std.debug.print("No good: {}\n", .{e});
+                        map_table = Cmap.new(reader, allocator) catch {
                             continue;
                         };
 
@@ -596,81 +601,32 @@ pub const TrueTypeFont = struct {
             }
         }
 
-        const glyphs = try ArrayList(Glyph).init(allocator, 1);
+        var glyphs: [@typeInfo(Type).Enum.fields.len]Glyph = undefined;
+
+        for (0..@typeInfo(Type).Enum.fields.len) |i| {
+            const typ: Type = @enumFromInt(i);
+            const index = try map_table.get_index(reader, typ.code());
+
+            glyphs[@intFromEnum(typ)] = try Glyph.new(&tables, reader, header, size, index, allocator);
+        }
+
+        map_table.deinit();
+        const end = try std.time.Instant.now();
+        std.debug.print("elapsed: {}\n", .{end.since(start) / 1000});
 
         return .{
-            .header = header,
-            .tables = tables,
-            .map_table = map_table,
+            .texture = glyphs[0].texture,
+            .size = size,
             .glyphs = glyphs,
-            .num_tables = num_tables,
-            .scalar_type = scalar_type,
-            .range_shift = range_shift,
-            .search_range = search_range,
-            .entry_selector = entry_selector,
             .allocator = allocator,
-            .path = file_path,
+            .width = glyphs[0].width,
+            .height = glyphs[0].height,
         };
     }
 
-    // pub fn glyph_object(self: *TrueTypeFont, typ: Type) !Object {
-    // const c = typ.code();
-    // const reader = try Reader.new(self.path);
-
-    // defer reader.shutdown();
-
-    // const index = try self.map_table.get_index(reader, c);
-    // const glyph = try Glyph.new(self.tables, reader, self.header, self.allocator, index);
-
-    // try self.glyphs.push(glyph);
-
-    // var texture = try ArrayList([2]f32).init(self.allocator, 6);
-    // texture.items.len = 6;
-
-    // @memset(texture.items, .{0, 0});
-
-    // return .{
-    // .vertex = try ArrayList([3]f32).init(self.allocator, 0),
-    // .index = try ArrayList(u16).init(self.allocator, 0),
-    // .texture = texture
-    // };
-    // }
-
-    pub fn add_glyph(self: *TrueTypeFont, typ: Type) !void {
-        const reader = try Reader.new(self.path);
-        defer reader.shutdown();
-
-        const index = try self.map_table.get_index(reader, typ.code());
-        const glyph = try Glyph.new(self.tables, reader, self.header, self.allocator, index, typ);
-
-        try self.glyphs.push(glyph);
-    }
-
-    pub fn font_manager(self: *TrueTypeFont) !FontManager {
-        const manager = FontManager.new(self.glyphs, self.allocator);
-
-        self.glyphs.deinit();
-        self.map_table.deinit();
-        self.allocator.free(self.tables);
-
-        return manager;
-    }
-
-    fn get_date(slice: [8]u8) u64 {
-        var array1: [4]u8 = undefined;
-        var array2: [4]u8 = undefined;
-
-        @memcpy(&array1, slice[0..4]);
-        @memcpy(&array2, slice[4..8]);
-
-        return @as(u64, @intCast(convert(&array1))) * 0x100000000 + convert(&array2);
-    }
-
-    fn convert(slice: []const u8) u32 {
-        return switch (slice.len) {
-            4 => @as(u32, @intCast(slice[0])) << 24 | @as(u32, @intCast(slice[1])) << 16 | @as(u32, @intCast(slice[2])) << 8 | @as(u32, @intCast(slice[3])),
-            2 => @as(u32, @intCast(slice[0])) << 8 | @as(u32, @intCast(slice[1])),
-            else => undefined
-        };
+    pub fn deinit(self: *TrueTypeFont) void {
+        for (self.glyphs) |glyph| {
+            self.allocator.free(glyph.texture);
+        }
     }
 };

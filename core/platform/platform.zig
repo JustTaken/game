@@ -9,6 +9,7 @@ pub const c = @cImport({
 
 const dlopen = std.c.dlopen;
 const dlsym = std.c.dlsym;
+const dlclose = std.c.dlclose;
 
 const _config = @import("../util/configuration.zig");
 const _event = @import("../event/event.zig");
@@ -60,6 +61,7 @@ pub fn Platform(comptime compositor: Compositor) type {
         }
 
         pub fn deinit(self: Self) void {
+            _ = dlclose(vulkan.?);
             self.compositor.deinit();
         }
     };

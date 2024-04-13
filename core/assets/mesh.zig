@@ -3,8 +3,9 @@ const std = @import("std");
 const _collections = @import("../collections/collections.zig");
 const _math = @import("../math/math.zig");
 const _object = @import("object.zig");
+const _allocator = @import("../util/allocator.zig");
 
-const Allocator = std.mem.Allocator;
+const Allocator = _allocator.Allocator;
 const ArrayList = _collections.ArrayList;
 
 pub const Mesh = struct {
@@ -18,8 +19,8 @@ pub const Mesh = struct {
         plane,
     };
 
-    pub fn new(typ: Type, allocator: Allocator) !Mesh {
-        const path = try std.mem.concat(allocator, u8, &.{"assets/objects/", @tagName(typ), ".obj"});
+    pub fn new(typ: Type, allocator: *Allocator) !Mesh {
+        const path = try std.mem.concat(allocator.handle, u8, &.{"assets/objects/", @tagName(typ), ".obj"});
         defer allocator.free(path);
 
         var file = try std.fs.cwd().openFile(path, .{});

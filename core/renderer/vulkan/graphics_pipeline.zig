@@ -4,6 +4,7 @@ const _config = @import("../../util/configuration.zig");
 const _collections = @import("../../collections/collections.zig");
 const _io = @import("../../io/io.zig");
 const _platform = @import("../../platform/platform.zig");
+const _allocator = @import("../../util/allocator.zig");
 
 const _instance = @import("instance.zig");
 const _device = @import("device.zig");
@@ -14,12 +15,11 @@ const Window = _window.Window;
 const Device = _device.Device;
 const Instance = _instance.Instance;
 const Data = _data.Data;
+const Allocator = _allocator.Allocator;
 
 const c = _platform.c;
 const ArrayList = _collections.ArrayList;
 const Io = _io.Io;
-
-const Allocator = std.mem.Allocator;
 
 const configuration = _config.Configuration;
 
@@ -34,7 +34,7 @@ pub const GraphicsPipeline = struct {
     pub const Descriptor = struct {
         pools: ArrayList(Pool),
         layouts: [@typeInfo(Layout).Enum.fields.len]c.VkDescriptorSetLayout,
-        allocator: Allocator,
+        allocator: *Allocator,
         size_each: u32,
 
         const Layout = enum(u8) {
@@ -48,7 +48,7 @@ pub const GraphicsPipeline = struct {
             descriptor_sets: ArrayList(c.VkDescriptorSet),
             layout: Layout,
 
-            fn new(device: Device, allocator: Allocator, size: u32, layout: Layout) !Pool {
+            fn new(device: Device, allocator: *Allocator, size: u32, layout: Layout) !Pool {
                 const pool_sizes: []const c.VkDescriptorPoolSize = switch (layout) {
                     .instance => &.{
                         .{
@@ -84,10 +84,8 @@ pub const GraphicsPipeline = struct {
                 };
             }
 
-            fn allocate(self: *Pool, device: Device, count: u32, allocator: Allocator, layout: c.VkDescriptorSetLayout) ![]const c.VkDescriptorSet {
-                if (self.descriptor_sets.items.len + count >= self.descriptor_sets.capacity) {
-                    return error.NoSpace;
-                }
+            fn allocate(self: *Pool, device: Device, count: u32, allocator: *Allocator, layout: c.VkDescriptorSetLayout) ![]const c.VkDescriptorSet {
+                if (self.descriptor_sets.items.len + count >= self.descriptor_sets.capacity) return error.NoSpace;
 
                 const layouts = try allocator.alloc(c.VkDescriptorSetLayout, count);
                 defer allocator.free(layouts);
@@ -115,7 +113,7 @@ pub const GraphicsPipeline = struct {
             }
         };
 
-        fn new(size_each: u32, allocator: Allocator) !Descriptor {
+        fn new(size_each: u32, allocator: *Allocator) !Descriptor {
             return .{
                 .pools = try ArrayList(Pool).init(allocator, 1),
                 .layouts = undefined,
@@ -129,8 +127,8 @@ pub const GraphicsPipeline = struct {
         }
 
         pub fn allocate(self: *Descriptor, device: Device, layout: Layout, count: u32) ![]const c.VkDescriptorSet {
-            const descriptor_sets = blk: for (0..self.pools.items.len) |i| {
-                const sets = self.pools.items[i].allocate(device, count, self.allocator, self.layouts[@intFromEnum(layout)]) catch {
+            const descriptor_sets = blk: for (self.pools.items) |*pool| {
+                const sets = pool.allocate(device, count, self.allocator, self.layouts[@intFromEnum(layout)]) catch {
                     continue;
                 };
 
@@ -156,7 +154,7 @@ pub const GraphicsPipeline = struct {
         }
     };
 
-    pub fn new(device: Device, instance: Instance, window: Window, allocator: Allocator) !GraphicsPipeline {
+    pub fn new(device: Device, instance: Instance, window: Window, allocator: *Allocator) !GraphicsPipeline {
         const vert_code = try Io.read_file("assets/shader/vert.spv", allocator);
         defer allocator.free(vert_code);
 

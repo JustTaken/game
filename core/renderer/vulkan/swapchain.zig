@@ -3,9 +3,9 @@ const std = @import("std");
 const _config = @import("../../util/configuration.zig");
 const _collections = @import("../../collections/collections.zig");
 const _platform = @import("../../platform/platform.zig");
+const _allocator = @import("../../util/allocator.zig");
 
 const _result = @import("error.zig");
-const _instance = @import("instance.zig");
 const _device = @import("device.zig");
 const _graphics_pipeline = @import("graphics_pipeline.zig");
 const _window = @import("window.zig");
@@ -13,7 +13,6 @@ const _data = @import("data.zig");
 const _command_pool = @import("command_pool.zig");
 const _sync = @import("sync.zig");
 
-const Instance = _instance.Instance;
 const GraphicsPipeline = _graphics_pipeline.GraphicsPipeline;
 const Device = _device.Device;
 const Data = _data.Data;
@@ -24,7 +23,7 @@ const Result = _result.Result;
 
 const Platform = _platform.Platform;
 const ArrayList = _collections.ArrayList;
-const Allocator = std.mem.Allocator;
+const Allocator = _allocator.Allocator;
 
 const c = _platform.c;
 const configuration = _config.Configuration;
@@ -39,19 +38,19 @@ pub const Swapchain = struct {
 
     image_views: ArrayList(c.VkImageView),
     framebuffers: ArrayList(c.VkFramebuffer),
-    allocator: Allocator,
+    allocator: *Allocator,
 
+    has_to_recreate: bool,
     force_redraw: bool,
 
     pub fn new(
         device: Device,
-        allocator: Allocator,
-        instance: Instance,
+        allocator: *Allocator,
         window: Window,
         graphics_pipeline: GraphicsPipeline
     ) !Swapchain {
         const present_mode = c.VK_PRESENT_MODE_FIFO_KHR;
-        const capabilities = try instance.get_physical_device_surface_capabilities(device.physical_device, window.surface);
+        const capabilities = device.physical_device_capabilities;
 
         const extent = if (capabilities.currentExtent.width != 0xFFFFFFFF) capabilities.currentExtent
         else c.VkExtent2D {
@@ -182,6 +181,7 @@ pub const Swapchain = struct {
             .depth_image_view = depth_image_view,
             .depth_image_memory = depth_image_memory,
             .allocator = allocator,
+            .has_to_recreate = false,
             .force_redraw = false,
         };
     }
@@ -189,22 +189,19 @@ pub const Swapchain = struct {
     pub fn recreate(
         self: *Swapchain,
         device: Device,
-        instance: Instance,
         pipeline: GraphicsPipeline,
-        window: Window,
+        window: *Window,
         command_pool: *CommandPool,
     ) !void {
         while (true) {
-            if (window.width == 0 or window.height == 0) {
-            } else {
-                break;
-            }
-
-            std.time.sleep(60 * Sync.default);
+            if (window.width == 0 or window.height == 0) std.time.sleep(60 * Sync.default)
+            else break;
         }
 
+        window.resized = false;
+
         const present_mode = c.VK_PRESENT_MODE_FIFO_KHR;
-        const capabilities = try instance.get_physical_device_surface_capabilities(device.physical_device, window.surface);
+        const capabilities = device.physical_device_capabilities;
 
         self.extent = if (capabilities.currentExtent.width != 0xFFFFFFFF) capabilities.currentExtent
         else .{
@@ -265,7 +262,6 @@ pub const Swapchain = struct {
                 },
             });
         }
-
 
         device.destroy_image(self.depth_image);
         self.depth_image = try device.create_image(.{
@@ -330,14 +326,19 @@ pub const Swapchain = struct {
             });
         }
 
+        self.has_to_recreate = false;
         self.force_redraw = true;
+
         command_pool.invalidate_all();
 
         logger.log(.Debug, "Swapchain recreated", .{});
     }
 
-    fn acquire_next_image(self: Swapchain, device: Device, sync: Sync) !u32 {
-        return try device.acquire_next_image(self.handle, sync.image_available);
+    fn acquire_next_image(self: *Swapchain, device: Device, sync: Sync) !u32 {
+        const result: struct { bool, u32 } = try device.acquire_next_image(self.handle, sync.image_available);
+
+        self.has_to_recreate = result[0];
+        return result[1];
     }
 
     pub fn draw_next_frame(
@@ -345,30 +346,14 @@ pub const Swapchain = struct {
         device: Device,
         pipeline: GraphicsPipeline,
         command_pool: *CommandPool,
-        data: Data,
-        sync: *Sync,
-    ) !bool {
-        self.draw_frame(device, pipeline, command_pool, data, sync) catch |e| {
-            if(e == Result.SuboptimalKhr or e == Result.OutOfDateKhr) return true
-            else return e;
-        };
-
-        return false;
-    }
-
-    fn draw_frame(
-        self: Swapchain,
-        device: Device,
-        pipeline: GraphicsPipeline,
-        command_pool: *CommandPool,
+        window: *Window,
         data: Data,
         sync: *Sync,
     ) !void {
         const image_index = try self.acquire_next_image(device, sync.*);
 
-        if (!(command_pool.buffers.items[image_index].is_valid)) try command_pool.buffers.items[image_index].record(device, pipeline, self, data);
+        if (!(command_pool.buffers.items[image_index].is_valid)) try command_pool.buffers.items[image_index].record(device, pipeline, self.*, data);
 
-        sync.changed = true;
         try device.queue_submit(sync.in_flight_fence, .{
             .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
             .waitSemaphoreCount = 1,
@@ -389,6 +374,11 @@ pub const Swapchain = struct {
             .pImageIndices = &image_index,
             .pResults = null,
         });
+
+        sync.changed = true;
+        self.force_redraw = false;
+
+        if (self.has_to_recreate or window.resized) try self.recreate(device, pipeline, window, command_pool);
     }
 
     pub fn destroy(self: *Swapchain, device: Device) void {

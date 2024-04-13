@@ -1,18 +1,19 @@
 const std = @import("std");
 const _io = @import("../io/io.zig");
 const _math = @import("../math/math.zig");
+const _allocator = @import("../util/allocator.zig");
 
 const c = @cImport({ @cInclude("zlib.h"); });
 const abs = _math.abs;
 
-const Allocator = std.mem.Allocator;
+const Allocator = _allocator.Allocator;
 const Reader = _io.Io.Reader;
 
 pub const PngImage = struct {
     width: u32,
     height: u32,
     pixels: []const u8,
-    allocator: Allocator,
+    allocator: *Allocator,
 
     const Chunk = struct {
         length: u32,
@@ -21,7 +22,7 @@ pub const PngImage = struct {
         crc: [4]u8,
     };
 
-    pub fn new(path: []const u8, allocator: Allocator) !PngImage {
+    pub fn new(path: []const u8, allocator: *Allocator) !PngImage {
         const reader = try Reader.new(path);
         const magic_number = try reader.read(8);
         var bit_depth: u8 = undefined;

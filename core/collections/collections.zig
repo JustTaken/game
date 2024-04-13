@@ -1,15 +1,18 @@
 const std = @import("std");
+const _allocator = @import("../util/allocator.zig");
+
+const Allocator = _allocator.Allocator;
 
 pub fn ArrayList(comptime T: type) type {
     return struct {
         items: []T,
         capacity: u32,
-        allocator: std.mem.Allocator,
+        allocator: *Allocator,
 
         const Self = @This();
         const grow_factor = 10;
 
-        pub fn init(allocator: std.mem.Allocator, capacity: ?u32) !Self {
+        pub fn init(allocator: *Allocator, capacity: ?u32) !Self {
             const c = capacity orelse 0;
             const memory = try allocator.alloc(T, c);
             var items: []T = &[_]T {};
@@ -43,10 +46,25 @@ pub fn ArrayList(comptime T: type) type {
         }
 
         pub fn insert(self: *Self, item: T, i: u32) !void {
-            if (self.capacity <= i) return error.IndexNotAvailable;
+            if (self.items.len + 1 >= self.capacity) {
+                try self.resize(self.capacity + 1 + grow_factor);
+            }
 
-            self.items.len = std.math.max(i, self.items.len);
+            self.items.len += 1;
+            std.mem.copyBackwards(T, self.items[i + 1..self.items.len], self.items[i..self.items.len - 1]);
+
+            // @memcpy(self.items[i + 1..self.items.len], self.items[i..self.items.len - 1]);
             self.items[i] = item;
+
+            // if (!(self.items.len + 1 >= self.capacity)) {
+            //     try self.resize(self.capacity + 1 + grow_factor);
+            // }
+
+
+            // if (self.capacity <= i) return error.IndexNotAvailable;
+
+            // self.items.len = std.math.max(i, self.items.len);
+            // self.items[i] = item;
         }
 
         pub fn get(self: Self, i: u32) !T {

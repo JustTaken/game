@@ -3,6 +3,7 @@ const std = @import("std");
 const _config = @import("../../util/configuration.zig");
 const _collections = @import("../../collections/collections.zig");
 const _platform = @import("../../platform/platform.zig");
+const _allocator = @import("../../util/allocator.zig");
 
 const _device = @import("device.zig");
 const _graphics_pipeline = @import("graphics_pipeline.zig");
@@ -16,7 +17,7 @@ const Data = _data.Data;
 
 const ArrayList = _collections.ArrayList;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const Allocator = std.mem.Allocator;
+const Allocator = _allocator.Allocator;
 
 const c = _platform.c;
 const configuration = _config.Configuration;
@@ -24,7 +25,7 @@ const configuration = _config.Configuration;
 pub const CommandPool = struct {
     handle: c.VkCommandPool,
     buffers: ArrayList(Buffer),
-    arena: ArenaAllocator,
+    allocator: *Allocator,
 
     const Buffer = struct {
         handle: c.VkCommandBuffer,
@@ -151,10 +152,7 @@ pub const CommandPool = struct {
         device.free_command_buffer(self.handle, command_buffer);
     }
 
-    pub fn new(device: Device, swapchain: Swapchain) !CommandPool {
-        var arena = ArenaAllocator.init(std.heap.page_allocator);
-        const allocator = arena.allocator();
-
+    pub fn new(device: Device, swapchain: Swapchain, allocator: *Allocator) !CommandPool {
         const handle = try device.create_command_pool(.{
             .sType = c.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
             .flags = c.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
@@ -171,6 +169,8 @@ pub const CommandPool = struct {
             .commandBufferCount = count,
         });
 
+        defer allocator.free(bs);
+
         for (0..count) |i| {
             try buffers.push(.{
                 .handle = bs[i],
@@ -181,7 +181,7 @@ pub const CommandPool = struct {
         return .{
             .buffers = buffers,
             .handle = handle,
-            .arena = arena,
+            .allocator = allocator,
         };
     }
 
@@ -190,7 +190,8 @@ pub const CommandPool = struct {
             device.free_command_buffer(self.handle, self.buffers.items[i].handle);
         }
 
+        self.buffers.deinit();
+
         device.destroy_command_pool(self.handle);
-        _ = self.arena.deinit();
     }
 };

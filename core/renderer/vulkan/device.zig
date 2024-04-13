@@ -3,6 +3,7 @@ const std = @import("std");
 const _config = @import("../../util/configuration.zig");
 const _collections = @import("../../collections/collections.zig");
 const _platform = @import("../../platform/platform.zig");
+const _allocator = @import("../../util/allocator.zig");
 
 const _error = @import("error.zig");
 const _instance = @import("instance.zig");
@@ -10,7 +11,8 @@ const _instance = @import("instance.zig");
 const Instance = _instance.Instance;
 const check = _error.check;
 const ArrayList = _collections.ArrayList;
-const Allocator = std.mem.Allocator;
+const Allocator = _allocator.Allocator;
+const Result = _error.Result;
 
 const c = _platform.c;
 const configuration = _config.Configuration;
@@ -23,12 +25,13 @@ pub const Device = struct {
     memory_properties: c.VkPhysicalDeviceMemoryProperties,
     queues: [4]Queue,
     physical_device_properties: c.VkPhysicalDeviceProperties,
+    physical_device_capabilities: c.VkSurfaceCapabilitiesKHR,
 
     pub const Queue = struct {
         handle: c.VkQueue,
         family: u32,
 
-        pub fn uniques(queues: []const u32, allocator: Allocator) !ArrayList(u32) {
+        pub fn uniques(queues: []const u32, allocator: *Allocator) !ArrayList(u32) {
             var uniques_array = try ArrayList(u32).init(allocator, 1);
 
             try uniques_array.push(queues[0]);
@@ -56,7 +59,7 @@ pub const Device = struct {
         Cpu,
     };
 
-    pub fn new(instance: Instance, surface: c.VkSurfaceKHR, allocator: Allocator) !Device {
+    pub fn new(instance: Instance, surface: c.VkSurfaceKHR, allocator: *Allocator) !Device {
         var queue_families: [4]u32 = undefined;
         const physical_device = blk: {
             const physical_devices = try instance.enumerate_physical_devices(allocator);
@@ -179,10 +182,11 @@ pub const Device = struct {
             .physical_device = physical_device,
             .memory_properties = instance.get_physical_device_memory_properties(physical_device),
             .physical_device_properties = instance.get_physical_device_properties(physical_device),
+            .physical_device_capabilities = try instance.get_physical_device_surface_capabilities(physical_device, surface),
         };
     }
 
-    pub fn get_swapchain_images(self: Device, swapchain: c.VkSwapchainKHR, allocator: Allocator) !ArrayList(c.VkImage) {
+    pub fn get_swapchain_images(self: Device, swapchain: c.VkSwapchainKHR, allocator: *Allocator) !ArrayList(c.VkImage) {
         var count: u32 = undefined;
 
         try check(vkGetSwapchainImagesKHR(self.handle, swapchain, &count, null));
@@ -339,7 +343,7 @@ pub const Device = struct {
         try check(vkResetFences(self.handle, 1, fence));
     }
 
-    pub fn allocate_command_buffers(self: Device, allocator: Allocator, info: c.VkCommandBufferAllocateInfo) ![]c.VkCommandBuffer {
+    pub fn allocate_command_buffers(self: Device, allocator: *Allocator, info: c.VkCommandBufferAllocateInfo) ![]c.VkCommandBuffer {
         var command_buffers = try allocator.alloc(c.VkCommandBuffer, info.commandBufferCount);
         try check(vkAllocateCommandBuffers(self.handle, &info, &command_buffers[0]));
 
@@ -353,7 +357,7 @@ pub const Device = struct {
         return command_buffer;
     }
 
-    pub fn allocate_descriptor_sets(self: Device, info: c.VkDescriptorSetAllocateInfo, allocator: Allocator) ![]c.VkDescriptorSet {
+    pub fn allocate_descriptor_sets(self: Device, info: c.VkDescriptorSetAllocateInfo, allocator: *Allocator) ![]c.VkDescriptorSet {
         var descriptor = try allocator.alloc(c.VkDescriptorSet, info.descriptorSetCount);
         try check(vkAllocateDescriptorSets(self.handle, &info, &descriptor[0]));
 
@@ -367,13 +371,16 @@ pub const Device = struct {
         return memory;
     }
 
-    pub fn acquire_next_image(self: Device, swapchain: c.VkSwapchainKHR, semaphore: c.VkSemaphore) !u32 {
+    pub fn acquire_next_image(self: Device, swapchain: c.VkSwapchainKHR, semaphore: c.VkSemaphore) !struct { bool, u32 }{
         const MAX: u64 = 0xFFFFFFFFFFFFFFFF;
         var index: u32 = undefined;
 
-        try check(vkAcquireNextImageKHR(self.handle, swapchain, MAX, semaphore, null, &index));
+        check(vkAcquireNextImageKHR(self.handle, swapchain, MAX, semaphore, null, &index)) catch |e| {
+            if (e == Result.SuboptimalKhr or e == Result.OutOfDateKhr) return .{ true, index };
+            return e;
+        };
 
-        return index;
+        return .{ false, index };
     }
 
     pub fn queue_submit(self: Device, fence: c.VkFence, info: c.VkSubmitInfo) !void {

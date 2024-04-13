@@ -2,15 +2,16 @@ const std = @import("std");
 
 const _config = @import("../util/configuration.zig");
 const _collections = @import("../collections/collections.zig");
+const _allocator = @import("../util/allocator.zig");
 
 const State = _config.State;
 const ArrayList = _collections.ArrayList;
-const Allocator = std.mem.Allocator;
+const Allocator = _allocator.Allocator;
 
 pub const EventSystem = struct {
     state: State,
     events: []Event,
-    allocator: Allocator,
+    allocator: *Allocator,
 
     pub const Event = struct {
         emiters: ArrayList(Emiter),
@@ -83,7 +84,7 @@ pub const EventSystem = struct {
         u8: [8]u8,
     };
 
-    pub fn new(allocator: Allocator) !EventSystem {
+    pub fn new(allocator: *Allocator) !EventSystem {
         const n = @typeInfo(Event.Type).Enum.fields.len;
         const events = try allocator.alloc(Event, n);
 

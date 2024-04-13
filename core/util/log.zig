@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const Log  = struct {
+pub const Logger  = struct {
     level: Level = .Error,
 
     pub const Level = enum {
@@ -21,7 +21,7 @@ pub const Log  = struct {
         }
     };
 
-    pub fn log(comptime self: Log, comptime level: Level, comptime format: []const u8, args: anytype) void {
+    pub fn log(self: Logger, comptime level: Level, comptime format: []const u8, args: anytype) void {
         if (@intFromEnum(level) > @intFromEnum(self.level)) {
             return;
         }

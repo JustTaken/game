@@ -3,6 +3,7 @@ const std = @import("std");
 const _container = @import("../../container/container.zig");
 const _platform = @import("../../platform/platform.zig");
 const _config = @import("../../util/configuration.zig");
+const _allocator = @import("../../util/allocator.zig");
 
 const _sync = @import("sync.zig");
 const _data = @import("data.zig");
@@ -23,7 +24,7 @@ const CommandPool = _command_pool.CommandPool;
 const GraphicsPipeline = _graphics_pipeline.GraphicsPipeline;
 
 const Container = _container.Container;
-const Allocator = std.mem.Allocator;
+const Allocator = _allocator.Allocator;
 const Platform = _platform.Platform;
 
 pub const Vulkan = struct {
@@ -36,14 +37,14 @@ pub const Vulkan = struct {
     command_pool: CommandPool,
     graphics_pipeline: GraphicsPipeline,
 
-    pub fn new(comptime P: type, platform: P, allocator: Allocator) !Vulkan {
+    pub fn new(comptime P: type, platform: P, allocator: *Allocator) !Vulkan {
         const instance = try Instance.new(P);
         const window = try Window.new(try platform.create_surface(instance.handle));
         const device = try Device.new(instance, window.surface, allocator);
         var graphics_pipeline = try GraphicsPipeline.new(device, instance, window, allocator);
-        const swapchain = try Swapchain.new(device, allocator, instance, window, graphics_pipeline);
+        const swapchain = try Swapchain.new(device, allocator, window, graphics_pipeline);
         const sync = try Sync.new(device);
-        const command_pool = try CommandPool.new(device, swapchain);
+        const command_pool = try CommandPool.new(device, swapchain, allocator);
         const data = try Data.new(device, &graphics_pipeline.descriptor, command_pool, allocator);
 
         return .{
@@ -75,27 +76,16 @@ pub const Vulkan = struct {
         }
 
         if (self.window.resized or scene_changed or self.swapchain.force_redraw) {
-            if (try self.swapchain.draw_next_frame(
+            try self.swapchain.draw_next_frame(
                 self.device,
                 self.graphics_pipeline,
                 &self.command_pool,
+                &self.window,
                 self.data,
                 &self.sync
-            ) or self.window.resized) {
-                try self.swapchain.recreate(
-                    self.device,
-                    self.instance,
-                    self.graphics_pipeline,
-                    self.window,
-                    &self.command_pool
-                );
+            );
 
-                self.window.resized = false;
-            } else {
-                self.swapchain.force_redraw = false;
-
-                return true;
-            }
+            return true;
         }
 
         return false;

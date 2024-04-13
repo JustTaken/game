@@ -10,6 +10,20 @@ pub fn abs(number: anytype, T: type) !T {
     };
 }
 
+pub fn fac(n: usize) usize {
+    if (n <= 1) return 1;
+    return n * fac(n - 1);
+}
+
+pub fn pow(t: f32, n: f32) f32 {
+    if (t == 0 and n == 0) return 1.0;
+    return std.math.pow(f32, t, n);
+}
+
+pub fn or_zero(number: i32) u32 {
+    if (number > 0) return @intCast(number) else return 0;
+}
+
 pub const Vec = struct {
     x: f32,
     y: f32,

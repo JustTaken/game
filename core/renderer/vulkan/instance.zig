@@ -3,9 +3,11 @@ const std = @import("std");
 const _config = @import("../../util/configuration.zig");
 const _platform = @import("../../platform/platform.zig");
 const _error = @import("error.zig");
+const _allocator = @import("../../util/allocator.zig");
 
 const Platform = _platform.Platform;
 const check = _error.check;
+const Allocator = _allocator.Allocator;
 
 const c = _platform.c;
 const configuration = _config.Configuration;
@@ -53,7 +55,7 @@ pub const Instance = struct {
         vkDestroySurfaceKHR(self.handle, surface, null);
     }
 
-    pub fn enumerate_physical_devices(self: Instance, allocator: std.mem.Allocator) ![]c.VkPhysicalDevice {
+    pub fn enumerate_physical_devices(self: Instance, allocator: *Allocator) ![]c.VkPhysicalDevice {
         var count: u32 = undefined;
 
         try check(vkEnumeratePhysicalDevices(self.handle, &count, null));
@@ -64,7 +66,7 @@ pub const Instance = struct {
         return physical_devices;
     }
 
-    pub fn enumerate_device_extension_properties(_: Instance, physical_device: c.VkPhysicalDevice, allocator: std.mem.Allocator) ![]c.VkExtensionProperties {
+    pub fn enumerate_device_extension_properties(_: Instance, physical_device: c.VkPhysicalDevice, allocator: *Allocator) ![]c.VkExtensionProperties {
         var count: u32 = undefined;
 
         try check(vkEnumerateDeviceExtensionProperties(physical_device, null, &count, null));
@@ -96,7 +98,7 @@ pub const Instance = struct {
         return properties;
     }
 
-    pub fn get_physical_device_surface_formats(_: Instance, physical_device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR, allocator: std.mem.Allocator) ![]c.VkSurfaceFormatKHR {
+    pub fn get_physical_device_surface_formats(_: Instance, physical_device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR, allocator: *Allocator) ![]c.VkSurfaceFormatKHR {
         var count: u32 = undefined;
         try check(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &count, null));
         const formats = try allocator.alloc(c.VkSurfaceFormatKHR, count);
@@ -106,7 +108,7 @@ pub const Instance = struct {
         return formats;
     }
 
-    pub fn get_physical_device_surface_present_modes(_: Instance, physical_device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR, allocator: std.mem.Allocator) ![]c.VkPresentModeKHR {
+    pub fn get_physical_device_surface_present_modes(_: Instance, physical_device: c.VkPhysicalDevice, surface: c.VkSurfaceKHR, allocator: *Allocator) ![]c.VkPresentModeKHR {
         var count: u32 = undefined;
         try check(vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &count, null));
         const present_modes = try allocator.alloc(c.VkPresentModeKHR, count);
@@ -115,7 +117,7 @@ pub const Instance = struct {
         return present_modes;
     }
 
-    pub fn get_physical_device_queue_family_properties(_: Instance, physical_device: c.VkPhysicalDevice, allocator: std.mem.Allocator) ![]c.VkQueueFamilyProperties {
+    pub fn get_physical_device_queue_family_properties(_: Instance, physical_device: c.VkPhysicalDevice, allocator: *Allocator) ![]c.VkQueueFamilyProperties {
         var count: u32 = undefined;
         vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &count, null);
         const properties = try allocator.alloc(c.VkQueueFamilyProperties, count);

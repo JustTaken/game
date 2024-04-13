@@ -8,6 +8,7 @@ const _mesh = @import("../../assets/mesh.zig");
 const _container = @import("../../container/container.zig");
 const _font = @import("../../assets/font.zig");
 const _image = @import("../../assets/image.zig");
+const _allocator = @import("../../util/allocator.zig");
 
 const _command_pool = @import("command_pool.zig");
 const _device = @import("device.zig");
@@ -18,13 +19,13 @@ const CommandPool = _command_pool.CommandPool;
 const Descriptor = _graphics_pipeline.GraphicsPipeline.Descriptor;
 
 const ArrayList = _collections.ArrayList;
-const Allocator = std.mem.Allocator;
+const Allocator = _allocator.Allocator;
 const Matrix = _math.Matrix;
 const Container = _container.Container;
 const Mesh = _mesh.Mesh;
 const ObjectType = _mesh.Mesh.Type;
 const PngImage = _image.PngImage;
-const FontManager = _font.FontManager;
+const TrueTypeFont = _font.TrueTypeFont;
 
 const c = _platform.c;
 
@@ -32,7 +33,7 @@ pub const Data = struct {
     global: Global,
     models: []Model,
     font: Font,
-    allocator: Allocator,
+    allocator: *Allocator,
 
     const Global = struct {
         buffer: Buffer,
@@ -110,7 +111,7 @@ pub const Data = struct {
                 device: Device,
                 command_pool: CommandPool,
                 descriptor: *Descriptor,
-                allocator: Allocator,
+                allocator: *Allocator,
                 vertex: []const [3]f32,
                 texture_coords: []const [2]f32,
                 index: []const u16,
@@ -195,14 +196,14 @@ pub const Data = struct {
             device: Device,
             command_pool: CommandPool,
             descriptor: *Descriptor,
-            font_manager: FontManager,
-            allocator: Allocator
+            font: TrueTypeFont,
+            allocator: *Allocator
         ) !Font {
             const texture = try Texture.new(device, command_pool, descriptor, .{
                 .format = c.VK_FORMAT_R8_UNORM,
-                .pixels = font_manager.texture,
-                .width = font_manager.width,
-                .height = font_manager.height,
+                .pixels = font.texture,
+                .width = font.width,
+                .height = font.height,
                 .anisotropy = false,
             });
 
@@ -213,11 +214,12 @@ pub const Data = struct {
             };
         }
 
-        fn destroy(self: Font, device: Device) void {
+        fn destroy(self: *Font, device: Device) void {
             for (self.glyphs.items) |glyph| {
                 glyph.destroy(device);
             }
 
+            self.glyphs.deinit();
             self.texture.destroy(device);
         }
     };
@@ -391,9 +393,9 @@ pub const Data = struct {
                 .sType = c.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
                 .magFilter = c.VK_FILTER_LINEAR,
                 .minFilter = c.VK_FILTER_LINEAR,
-                .addressModeU = c.VK_SAMPLER_ADDRESS_MODE_REPEAT,
-                .addressModeV = c.VK_SAMPLER_ADDRESS_MODE_REPEAT,
-                .addressModeW = c.VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                .addressModeU = c.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+                .addressModeV = c.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+                .addressModeW = c.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
                 .anisotropyEnable = if (config.anisotropy) c.VK_TRUE else c.VK_FALSE,
                 .maxAnisotropy = if (config.anisotropy) device.physical_device_properties.limits.maxSamplerAnisotropy else 1,
                 .borderColor = c.VK_BORDER_COLOR_INT_OPAQUE_BLACK,
@@ -539,7 +541,7 @@ pub const Data = struct {
             command_pool: CommandPool,
             mesh: Mesh,
             texture: Texture,
-            allocator: Allocator,
+            allocator: *Allocator,
         ) !Model {
             const Index = @TypeOf(mesh.index.items[0]);
             const index = try Buffer.new(device, command_pool, Index, mesh.index.items,
@@ -698,7 +700,7 @@ pub const Data = struct {
                                 device,
                                 command_pool.*,
                                 descriptor,
-                                container.font_manager,
+                                container.font,
                                 self.allocator,
                             );
                         }
@@ -708,7 +710,7 @@ pub const Data = struct {
                             .model => self.font.glyphs.items[object_glyph.id].mapped.model = object_glyph.model,
                             .color => self.font.glyphs.items[object_glyph.id].mapped.color = object_glyph.color,
                             .new => {
-                                const model_glyph = container.font_manager.glyphs[k];
+                                const model_glyph = container.font.glyphs[k];
                                 const glyph = try Font.Glyph.new(
                                     device,
                                     command_pool.*,
@@ -719,7 +721,9 @@ pub const Data = struct {
                                     &model_glyph.index,
                                     .{ .model = object_glyph.model, .color = object_glyph.color }
                                 );
+
                                 container.glyphs.items[update.id].id = try self.font.add_glyph(glyph);
+                                command_pool.invalidate_all();
                             }
                         }
                     },
@@ -739,7 +743,6 @@ pub const Data = struct {
                             });
 
                             self.models[k] = try Model.new(device, command_pool.*, mesh, texture, self.allocator);
-
                             mesh.deinit();
                         }
 
@@ -768,7 +771,7 @@ pub const Data = struct {
         }
     }
 
-    pub fn destroy(self: Data, device: Device) void {
+    pub fn destroy(self: *Data, device: Device) void {
         self.global.destroy(device);
         self.font.destroy(device);
 
@@ -780,7 +783,7 @@ pub const Data = struct {
         device: Device,
         descriptor: *Descriptor,
         command_pool: CommandPool,
-        allocator: Allocator
+        allocator: *Allocator
     ) !Data {
         const models = try allocator.alloc(Model, @typeInfo(ObjectType).Enum.fields.len);
         const font: Font = .{

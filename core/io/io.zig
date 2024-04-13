@@ -2,10 +2,11 @@ const std = @import("std");
 
 const _math = @import("../math/math.zig");
 const _collections = @import("../collections/collections.zig");
+const _allocator = @import("../util/allocator.zig");
 
 const ArrayList = _collections.ArrayList;
 const Vec = _math.Vec;
-const Allocator = std.mem.Allocator;
+const Allocator = _allocator.Allocator;
 
 pub const Io = struct {
     pub const Reader = struct {
@@ -24,7 +25,7 @@ pub const Io = struct {
             return buffer;
         }
 
-        pub fn read_alloc(self: Reader, size: u32, allocator: Allocator) ![]u8 {
+        pub fn read_alloc(self: Reader, size: u32, allocator: *Allocator) ![]u8 {
             const array: []u8 = try allocator.alloc(u8, size);
             if (try self.file.read(array) < size) return error.IncompleteContent;
 
@@ -44,12 +45,14 @@ pub const Io = struct {
         }
     };
 
-    pub fn read_file(file_name: []const u8, allocator: std.mem.Allocator) ![]u8 {
+    pub fn read_file(file_name: []const u8, allocator: *Allocator) ![]u8 {
         const file = try std.fs.cwd().openFile(file_name, .{});
         defer file.close();
 
         const end_pos = try file.getEndPos();
+        const content = try allocator.alloc(u8, end_pos);
+        if (try file.read(content) < end_pos) return error.InclompleteContent;
 
-        return try file.readToEndAlloc(allocator, end_pos);
+        return content;
     }
 };

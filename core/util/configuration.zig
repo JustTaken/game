@@ -1,7 +1,7 @@
 const std = @import("std");
 const _log = @import("log.zig");
 
-const Log = _log.Log;
+const Logger = _log.Logger;
 
 pub const Configuration = struct {
     pub const application_name: []const u8 = "Engine";
@@ -9,7 +9,7 @@ pub const Configuration = struct {
     pub const default_height: u32 = 1080;
     pub const version: u8 = 1;
 
-    pub const logger = Log {
+    pub const logger = Logger {
         .level = .Debug,
     };
 };

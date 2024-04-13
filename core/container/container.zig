@@ -8,12 +8,13 @@ const _collections = @import("../collections/collections.zig");
 const _configuration = @import("../util/configuration.zig");
 const _camera = @import("camera.zig");
 const _font = @import("../assets/font.zig");
+const _allocator = @import("../util/allocator.zig");
 
 const Vec = _math.Vec;
 const Matrix = _math.Matrix;
 
 const ArrayList = _collections.ArrayList;
-const Allocator = std.mem.Allocator;
+const Allocator = _allocator.Allocator;
 const Camera = _camera.Camera;
 
 const ObjectType = _mesh.Mesh.Type;
@@ -35,7 +36,7 @@ pub const Container = struct {
     glyphs: ArrayList(Object),
     updates: ArrayList(Update),
     camera: Camera,
-    font_manager: FontManager,
+    font: TrueTypeFont,
 
     const Update = struct {
         change: Change,
@@ -117,15 +118,15 @@ pub const Container = struct {
     }
 
     pub fn update(self: *Container) !void {
-        if (self.objects.items.len == 0) {
-            try self.add_object(.plane, .{
-                .model = Matrix.scale(1.0, 1.0, 1.0),
-                .color = Matrix.scale(1.0, 1.0, 1.0),
-                .id = undefined,
-            });
+        if (self.objects.items.len == 0 and self.glyphs.items.len == 0) {
+            // try self.add_object(.plane, .{
+            //     .model = Matrix.scale(1.0, 1.0, 1.0),
+            //     .color = Matrix.scale(1.0, 1.0, 1.0),
+            //     .id = undefined,
+            // });
 
             try self.add_glyph(.a, .{
-                .model = Matrix.translate(2.0, 0.0, 0.0),
+                .model = Matrix.scale(1.0, 1.0, 1.0),
                 .color = Matrix.scale(1.0, 1.0, 1.0),
                 .id = undefined,
             });
@@ -180,16 +181,12 @@ pub const Container = struct {
         return self.camera.listen_click(argument);
     }
 
-    pub fn new(allocator: Allocator) !Container {
-        var font = try TrueTypeFont.new("assets/font/font.ttf", allocator);
-        try font.add_glyph(.a);
-        const font_manager = try font.font_manager();
-
+    pub fn new(allocator: *Allocator) !Container {
         return .{
             .objects = try ArrayList(Object).init(allocator, 1),
             .glyphs = try ArrayList(Object).init(allocator, 1),
             .updates = try ArrayList(Update).init(allocator, 1),
-            .font_manager = font_manager,
+            .font = try TrueTypeFont.new("assets/font/font.ttf", 50, allocator),
             .camera = Camera.init(.{
                 .x = 0.0,
                 .y = 0.0,
@@ -201,7 +198,7 @@ pub const Container = struct {
     pub fn shutdown(self: *Container) void {
         self.objects.deinit();
         self.glyphs.deinit();
-        self.font_manager.deinit();
+        self.font.deinit();
         self.updates.deinit();
     }
 };
