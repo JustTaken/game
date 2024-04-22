@@ -170,7 +170,6 @@ pub const CommandPool = struct {
         });
 
         defer allocator.free(bs);
-
         for (0..count) |i| {
             try buffers.push(.{
                 .handle = bs[i],

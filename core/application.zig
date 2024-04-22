@@ -26,14 +26,13 @@ pub fn Application(comptime compositor: Compositor, comptime renderer: Renderer)
         const Self = @This();
 
         pub fn new(allocator: *Allocator) !Self {
-            defer allocator.usage();
             const container: Container = try Container.new(allocator);
             const backend: Backend(compositor, renderer) = try Backend(compositor, renderer).new(allocator);
             const event_system: EventSystem = try EventSystem.new(allocator);
 
             return .{
-                .container = container,
                 .backend = backend,
+                .container = container,
                 .event_system = event_system,
             };
         }

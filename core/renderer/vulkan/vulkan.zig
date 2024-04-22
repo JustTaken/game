@@ -28,14 +28,14 @@ const Allocator = _allocator.Allocator;
 const Platform = _platform.Platform;
 
 pub const Vulkan = struct {
-    sync: Sync,
-    data: Data,
+    instance: Instance,
     window: Window,
     device: Device,
-    instance: Instance,
-    swapchain: Swapchain,
-    command_pool: CommandPool,
     graphics_pipeline: GraphicsPipeline,
+    swapchain: Swapchain,
+    sync: Sync,
+    command_pool: CommandPool,
+    data: Data,
 
     pub fn new(comptime P: type, platform: P, allocator: *Allocator) !Vulkan {
         const instance = try Instance.new(P);
@@ -48,14 +48,14 @@ pub const Vulkan = struct {
         const data = try Data.new(device, &graphics_pipeline.descriptor, command_pool, allocator);
 
         return .{
-            .sync = sync,
-            .data = data,
-            .device = device,
-            .window = window,
-            .swapchain = swapchain,
             .instance = instance,
-            .command_pool = command_pool,
+            .window = window,
+            .device = device,
             .graphics_pipeline = graphics_pipeline,
+            .swapchain = swapchain,
+            .sync = sync,
+            .command_pool = command_pool,
+            .data = data,
         };
     }
 

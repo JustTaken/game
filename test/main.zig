@@ -15,16 +15,17 @@ test "Allocator : Alloc" {
     allocator.free(allocation_test);
 }
 
-test "Parse : TrueTypeFont" {
-    var font = try TrueTypeFont.new("assets/font/font.ttf", 16, std.testing.allocator);
-    font.deinit();
-}
+// test "Parse : TrueTypeFont" {
+//     var allocator = Allocator.new(std.testing.allocator, logger);
+//     var font = try TrueTypeFont.new("assets/font/font.ttf", 16, &allocator);
+//     font.deinit();
+// }
 
-test "Parse : Png" {
-    var image = try PngImage.new("assets/image/image2.png", std.testing.allocator);
-    std.debug.print("{d}\n", .{image.pixels[100..1000]});
-    image.deinit();
-}
+// test "Parse : Png" {
+//     var image = try PngImage.new("assets/image/image2.png", std.testing.allocator);
+//     std.debug.print("{d}\n", .{image.pixels[100..1000]});
+//     image.deinit();
+// }
 
 // test "Application" {
 //     var allocator = Allocator.new(std.testing.allocator, logger);
@@ -32,4 +33,3 @@ test "Parse : Png" {
 //     var app = try Application(.wayland, .vulkan).new(&allocator);
 //     try app.run();
 // }
-

@@ -74,26 +74,25 @@ pub const Device = struct {
                 const rating: u32 = rate: {
                     const extensions_properties = try instance.enumerate_device_extension_properties(physical_device, allocator);
 
-                    defer allocator.free(extensions_properties);
-
                     ext: for (REQUIRED_DEVICE_EXTENSIONS) |extension| {
                         for (extensions_properties) |propertie| {
                             if (std.mem.eql(u8, std.mem.span(extension), std.mem.sliceTo(&propertie.extensionName, 0))) break :ext;
                         }
                     } else break :rate 0;
+                    allocator.free(extensions_properties);
 
                     const surface_formats = instance.get_physical_device_surface_formats(physical_device, surface, allocator) catch break :rate 0;
-                    defer allocator.free(surface_formats);
 
                     const present_formats = instance.get_physical_device_surface_present_modes(physical_device, surface, allocator) catch break :rate 0;
-                    defer allocator.free(present_formats);
 
                     if (!(surface_formats.len > 0)) break :rate 0;
                     if (!(present_formats.len > 0)) break :rate 0;
 
+                    allocator.free(surface_formats);
+                    allocator.free(present_formats);
+
                     const families_properties = try instance.get_physical_device_queue_family_properties(physical_device, allocator);
 
-                    defer allocator.free(families_properties);
 
                     for (families_properties, 0..) |properties, i| {
                         const family: u32 = @intCast(i);
@@ -103,6 +102,8 @@ pub const Device = struct {
                         if (families[2] == null and (properties.queueFlags & c.VK_QUEUE_COMPUTE_BIT != 0)) families[2] = family;
                         if (families[3] == null and (properties.queueFlags & c.VK_QUEUE_TRANSFER_BIT != 0)) families[3] = family;
                     }
+
+                    allocator.free(families_properties);
 
                     for (families) |i| {
                         if (i) |_| {} else break :rate 0;

@@ -156,10 +156,8 @@ pub const GraphicsPipeline = struct {
 
     pub fn new(device: Device, instance: Instance, window: Window, allocator: *Allocator) !GraphicsPipeline {
         const vert_code = try Io.read_file("assets/shader/vert.spv", allocator);
-        defer allocator.free(vert_code);
 
         const frag_code = try Io.read_file("assets/shader/frag.spv", allocator);
-        defer allocator.free(frag_code);
 
         const vert_module = try device.create_shader_module(.{
             .sType = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
@@ -167,6 +165,7 @@ pub const GraphicsPipeline = struct {
             .codeSize = vert_code.len,
         });
 
+        allocator.free(vert_code);
         defer device.destroy_shader_module(vert_module);
 
         const frag_module = try device.create_shader_module(.{
@@ -175,6 +174,7 @@ pub const GraphicsPipeline = struct {
             .pCode = @as([*]const u32, @ptrCast(@alignCast(frag_code))),
         });
 
+        allocator.free(frag_code);
         defer device.destroy_shader_module(frag_module);
 
         const shader_stage_infos = &[_]c.VkPipelineShaderStageCreateInfo {

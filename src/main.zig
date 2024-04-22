@@ -9,10 +9,9 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const alloc = gpa.allocator();
 
-    var allocator = Allocator.new(alloc, logger);
+    var allocator = Allocator.new(alloc);
 
     var app = try Application(.wayland, .vulkan).new(&allocator);
+    logger.log(.Debug, "usage: {}\n", .{allocator.memory_used});
     try app.run();
-
-    allocator.usage();
 }

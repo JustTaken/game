@@ -202,4 +202,3 @@ pub const PngImage = struct {
         self.allocator.free(self.pixels);
     }
 };
-
